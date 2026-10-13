@@ -40,6 +40,7 @@ class KeyboardView(context: Context) : View(context) {
         fun onBackspace()
         fun onEnter()
         fun onToggleMode()
+        fun onCursor(delta: Int)
     }
 
     var listener: Listener? = null
@@ -61,6 +62,9 @@ class KeyboardView(context: Context) : View(context) {
     private val pressed = HashMap<Int, Key>()
     private val longPress = HashMap<Int, Runnable>()
     private val longFired = HashSet<Int>()
+    private val spaceLastX = HashMap<Int, Float>()
+    private val spaceAcc = HashMap<Int, Float>()
+    private val spaceSwiped = HashSet<Int>()
 
     private val handler = Handler(Looper.getMainLooper())
     private var repeatPointer = -1
@@ -205,7 +209,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun labelOf(k: Key): String = when (k.kind) {
         Kind.LETTER -> if (shift) k.label.uppercase() else k.label
-        Kind.SPACE -> if (composing) "変換" else if (japanese) "日本語" else "English"
+        Kind.SPACE -> if (composing) "変換" else ""
         Kind.ENTER -> ""
         Kind.BACKSPACE, Kind.SHIFT -> ""
         else -> k.label
@@ -381,6 +385,10 @@ class KeyboardView(context: Context) : View(context) {
             repeatPointer = id
             handler.postDelayed(repeatRunnable, 400)
         }
+        if (k.kind == Kind.SPACE) {
+            spaceLastX[id] = x
+            spaceAcc[id] = 0f
+        }
         if (k.hint != null) {
             val r = Runnable {
                 longPress.remove(id)
@@ -405,6 +413,17 @@ class KeyboardView(context: Context) : View(context) {
     private fun onMove(id: Int, x: Float, y: Float) {
         val cur = pressed[id] ?: return
         if (id == repeatPointer) return
+        if (cur.kind == Kind.SPACE && id in spaceLastX) {
+            // スペースキーの上を左右になぞるとカーソルが動く
+            val acc = (spaceAcc[id] ?: 0f) + (x - (spaceLastX[id] ?: x))
+            spaceLastX[id] = x
+            val step = dp(16f)
+            var a = acc
+            while (a >= step) { a -= step; spaceSwiped.add(id); listener?.onCursor(1) }
+            while (a <= -step) { a += step; spaceSwiped.add(id); listener?.onCursor(-1) }
+            spaceAcc[id] = a
+            return
+        }
         val next = hit(x, y) ?: return
         if (next !== cur && id !in longFired) {
             cancelLongPress(id)
@@ -416,6 +435,12 @@ class KeyboardView(context: Context) : View(context) {
     private fun onUp(id: Int, x: Float, y: Float) {
         val cur = pressed.remove(id)
         cancelLongPress(id)
+        spaceLastX.remove(id)
+        spaceAcc.remove(id)
+        if (spaceSwiped.remove(id)) {
+            invalidate()
+            return
+        }
         if (longFired.remove(id)) {
             invalidate()
             return
@@ -434,6 +459,9 @@ class KeyboardView(context: Context) : View(context) {
     private fun cancelAll() {
         for (id in longPress.keys.toList()) cancelLongPress(id)
         longFired.clear()
+        spaceLastX.clear()
+        spaceAcc.clear()
+        spaceSwiped.clear()
         pressed.clear()
         stopRepeat()
         invalidate()

@@ -16,11 +16,13 @@ object Backup {
             .put(Prefs.HAPTIC, Prefs.haptic(ctx))
             .put(Prefs.AUTO_CONVERT, Prefs.autoConvert(ctx))
             .put(Prefs.SHOW_BITWARDEN, Prefs.showBitwarden(ctx))
+            .put(Prefs.CLIP_RECORD, Prefs.clipRecord(ctx))
         return JSONObject()
             .put("app", APP_ID)
             .put("version", VERSION)
             .put("settings", settings)
             .put("learn", LearnStore.instance(ctx).toJson())
+            .put("pinned", ClipStore.instance(ctx).toJson())
             .toString(2)
     }
 
@@ -43,10 +45,12 @@ object Backup {
             if (s.has(Prefs.HAPTIC)) e.putBoolean(Prefs.HAPTIC, s.optBoolean(Prefs.HAPTIC, true))
             if (s.has(Prefs.AUTO_CONVERT)) e.putBoolean(Prefs.AUTO_CONVERT, s.optBoolean(Prefs.AUTO_CONVERT, true))
             if (s.has(Prefs.SHOW_BITWARDEN)) e.putBoolean(Prefs.SHOW_BITWARDEN, s.optBoolean(Prefs.SHOW_BITWARDEN, true))
+            if (s.has(Prefs.CLIP_RECORD)) e.putBoolean(Prefs.CLIP_RECORD, s.optBoolean(Prefs.CLIP_RECORD, true))
             e.apply()
         }
 
         val l = root.optJSONObject("learn")
         if (l != null) LearnStore.instance(ctx).replaceFrom(l)
+        root.optJSONArray("pinned")?.let { ClipStore.instance(ctx).replacePinned(it) }
     }
 }

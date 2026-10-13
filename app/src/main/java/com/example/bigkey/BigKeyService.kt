@@ -1,6 +1,9 @@
 package com.example.bigkey
 
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.widget.ScrollView
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.Bundle
@@ -30,6 +33,12 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private lateinit var autoScroll: HorizontalScrollView
     private lateinit var autoRow: LinearLayout
     private lateinit var bwButton: TextView
+    private lateinit var editButton: TextView
+    private lateinit var panel: LinearLayout
+    private lateinit var clipList: LinearLayout
+    private lateinit var clipStore: ClipStore
+    private var clipboard: ClipboardManager? = null
+    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener { recordClip() }
     private lateinit var dict: Dictionary
     private val composer = Composer()
 
@@ -45,6 +54,21 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     override fun onCreate() {
         super.onCreate()
         dict = Dictionary(this)
+        clipStore = ClipStore.instance(this)
+        clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        try {
+            clipboard?.addPrimaryClipChangedListener(clipListener)
+        } catch (_: Exception) {
+        }
+    }
+
+    override fun onDestroy() {
+        try {
+            clipboard?.removePrimaryClipChangedListener(clipListener)
+        } catch (_: Exception) {
+        }
+        clipStore.clearHistory()
+        super.onDestroy()
     }
 
     override fun onCreateInputView(): View {
@@ -86,9 +110,29 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             }
             setOnClickListener { launchBitwarden() }
         }
+        editButton = TextView(this).apply {
+            text = "編集"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(14), 0, dp(14), 0)
+            val p = Theme.of(this@BigKeyService)
+            setTextColor(p.text)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(p.special)
+                cornerRadius = dp(18).toFloat()
+            }
+            setOnClickListener { togglePanel() }
+        }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Theme.of(this@BigKeyService).bar)
+            addView(
+                editButton,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setMargins(dp(8), 0, dp(4), 0)
+                }
+            )
             addView(barFrame, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
             addView(
                 bwButton,
@@ -104,8 +148,13 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             it.likelyPredicate = { c -> !japanese || composer.canContinue(c) }
         }
         root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+        panel = buildPanel()
+        val body = FrameLayout(this).apply {
+            addView(kb, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
         root.addView(
-            kb,
+            body,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         )
         return root
@@ -114,6 +163,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         clearState()
+        if (::panel.isInitialized) closePanel()
 
         val cls = info.inputType and InputType.TYPE_MASK_CLASS
         val variation = info.inputType and InputType.TYPE_MASK_VARIATION
@@ -366,6 +416,169 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         } else {
             candScroll.scrollTo(0, 0)
         }
+    }
+
+    // ---- カーソル移動 ----
+
+    override fun onCursor(delta: Int) {
+        val ic = currentInputConnection ?: return
+        if (japanese && (candIndex >= 0 || !composer.isEmpty())) commitAsIs(ic)
+        sendDownUpKeyEvents(if (delta < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT)
+    }
+
+    // ---- 編集パネル（カーソル移動・コピー・貼り付け・クリップボード履歴） ----
+
+    private fun recordClip() {
+        if (!Prefs.clipRecord(this)) return
+        val cm = clipboard ?: return
+        try {
+            val clip = cm.primaryClip ?: return
+            if (clip.itemCount == 0) return
+            // 機密扱いの内容（パスワードマネージャーのコピーなど）は記録しない
+            if (clip.description?.extras?.getBoolean("android.content.extra.IS_SENSITIVE", false) == true) return
+            val text = clip.getItemAt(0).coerceToText(this)?.toString() ?: return
+            clipStore.add(text)
+            if (::panel.isInitialized && panel.visibility == View.VISIBLE) refreshClipList()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun buildPanel(): LinearLayout {
+        val pal = Theme.of(this)
+        fun tool(label: String, action: () -> Unit) = TextView(this).apply {
+            text = label
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(pal.text)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(pal.special)
+                cornerRadius = dp(12).toFloat()
+            }
+            setOnClickListener { action() }
+        }
+        val tools = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val items = listOf<Pair<String, () -> Unit>>(
+                "閉じる" to { closePanel() },
+                "←" to { moveCursor(-1) },
+                "→" to { moveCursor(1) },
+                "全選択" to { editAction(android.R.id.selectAll) },
+                "コピー" to { editAction(android.R.id.copy) },
+                "切取" to { editAction(android.R.id.cut) },
+                "貼付" to { editAction(android.R.id.paste) },
+            )
+            for ((label, action) in items) {
+                addView(
+                    tool(label, action),
+                    LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(dp(3), dp(4), dp(3), dp(4)) }
+                )
+            }
+        }
+        clipList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply { addView(clipList) }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(pal.bg)
+            visibility = View.GONE
+            addView(tools, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+    }
+
+    private fun togglePanel() {
+        if (panel.visibility == View.VISIBLE) {
+            closePanel()
+            return
+        }
+        currentInputConnection?.let { if (japanese) commitAsIs(it) }
+        recordClip() // 起動前にコピーしたものも拾う
+        refreshClipList()
+        panel.visibility = View.VISIBLE
+        kb.visibility = View.INVISIBLE
+    }
+
+    private fun closePanel() {
+        panel.visibility = View.GONE
+        kb.visibility = View.VISIBLE
+    }
+
+    private fun moveCursor(d: Int) {
+        sendDownUpKeyEvents(if (d < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT)
+    }
+
+    private fun editAction(id: Int) {
+        currentInputConnection?.performContextMenuAction(id)
+    }
+
+    private fun refreshClipList() {
+        val pal = Theme.of(this)
+        clipList.removeAllViews()
+        val pinned = clipStore.pinnedList()
+        val hist = clipStore.historyList()
+        if (pinned.isEmpty() && hist.isEmpty()) {
+            clipList.addView(TextView(this).apply {
+                text = if (Prefs.clipRecord(this@BigKeyService)) "コピーした文がここに並びます" else "履歴の記録は設定でオフになっています"
+                setTextColor(pal.hint)
+                textSize = 14f
+                setPadding(dp(16), dp(16), dp(16), dp(16))
+            })
+            return
+        }
+        for (s in pinned + hist) addClipRow(s, clipStore.isPinned(s), pal)
+    }
+
+    private fun addClipRow(text: String, pinned: Boolean, pal: Palette) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(pal.key)
+                cornerRadius = dp(12).toFloat()
+            }
+        }
+        row.addView(
+            TextView(this).apply {
+                this.text = text
+                textSize = 15f
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setTextColor(pal.text)
+                setPadding(dp(14), dp(10), dp(8), dp(10))
+                setOnClickListener {
+                    currentInputConnection?.commitText(text, 1)
+                    closePanel()
+                }
+            },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        row.addView(
+            TextView(this).apply {
+                this.text = if (pinned) "固定中" else "固定"
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setTextColor(if (pinned) pal.accentText else pal.hint)
+                if (pinned) {
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(pal.accent)
+                        cornerRadius = dp(14).toFloat()
+                    }
+                }
+                setPadding(dp(12), dp(6), dp(12), dp(6))
+                setOnClickListener {
+                    clipStore.togglePin(text)
+                    refreshClipList()
+                }
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, dp(8), 0)
+            }
+        )
+        clipList.addView(
+            row,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(dp(8), dp(3), dp(8), dp(3))
+            }
+        )
     }
 
     private fun updateBarVisibility() {

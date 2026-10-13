@@ -10,6 +10,7 @@ object Prefs {
     const val HAPTIC = "haptic"
     const val AUTO_CONVERT = "auto_convert"
     const val SHOW_BITWARDEN = "show_bitwarden"
+    const val CLIP_RECORD = "clip_record"
 
     const val DEFAULT_HEIGHT = 64
     const val MIN_HEIGHT = 44
@@ -30,4 +31,6 @@ object Prefs {
     fun autoConvert(ctx: Context): Boolean = get(ctx).getBoolean(AUTO_CONVERT, true)
 
     fun showBitwarden(ctx: Context): Boolean = get(ctx).getBoolean(SHOW_BITWARDEN, true)
+
+    fun clipRecord(ctx: Context): Boolean = get(ctx).getBoolean(CLIP_RECORD, true)
 }

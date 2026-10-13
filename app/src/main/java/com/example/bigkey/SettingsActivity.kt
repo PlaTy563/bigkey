@@ -103,6 +103,7 @@ class SettingsActivity : ComponentActivity() {
         root.addView(switchRow("誤タップ補正（ローマ字として続かないキーを選びにくくする）", Prefs.HIT_CORRECTION, true))
         root.addView(switchRow("キーを押したときに振動する", Prefs.HAPTIC, true))
         root.addView(switchRow("自動変換（打ちながら漢字に変換して表示する）", Prefs.AUTO_CONVERT, true))
+        root.addView(switchRow("クリップボードの履歴を記録する（履歴は終了すると消える。固定した文だけ保存）", Prefs.CLIP_RECORD, true))
         root.addView(switchRow("Bitwarden のボタンと自動入力の候補を表示する", Prefs.SHOW_BITWARDEN, true))
         root.addView(TextView(this).apply {
             text = "自動入力の候補を出すには、端末の設定で Bitwarden を自動入力サービスに選び、「インライン候補」を有効にしてください。"

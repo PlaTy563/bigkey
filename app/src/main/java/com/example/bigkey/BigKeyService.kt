@@ -50,7 +50,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     override fun onCreateInputView(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF161616.toInt())
+            setBackgroundColor(Theme.of(this@BigKeyService).bg)
         }
         candRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         candScroll = HorizontalScrollView(this).apply {
@@ -78,12 +78,13 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             textSize = 14f
             gravity = Gravity.CENTER
             setPadding(dp(14), 0, dp(14), 0)
-            setTextColor(0xFFEEEEEE.toInt())
-            setBackgroundColor(0xFF2F4F8F.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(Theme.of(this@BigKeyService).accent)
             setOnClickListener { launchBitwarden() }
         }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Theme.of(this@BigKeyService).bar)
             addView(barFrame, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
             addView(bwButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
@@ -319,11 +320,16 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         candidates.forEachIndexed { i, c ->
             val tv = TextView(this).apply {
                 text = c.text
-                textSize = 18f
+                textSize = 20f
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(16), 0, dp(16), 0)
-                setTextColor(0xFFEEEEEE.toInt())
-                if (i == candIndex) setBackgroundColor(0xFF4A6FC4.toInt())
+                val pal = Theme.of(this@BigKeyService)
+                if (i == candIndex) {
+                    setTextColor(0xFFFFFFFF.toInt())
+                    setBackgroundColor(pal.accent)
+                } else {
+                    setTextColor(pal.text)
+                }
                 setOnClickListener {
                     currentInputConnection?.let { ic -> commitCandidateAt(ic, i) }
                 }

@@ -55,6 +55,7 @@ class KeyboardView(context: Context) : View(context) {
     private var hitCorrection = true
     private var haptic = true
     private var keyHeightDp = Prefs.DEFAULT_HEIGHT
+    private var pal = Theme.of(context)
 
     private var rows: List<List<Key>> = emptyList()
     private val pressed = HashMap<Int, Key>()
@@ -73,7 +74,6 @@ class KeyboardView(context: Context) : View(context) {
     private val keyPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
-        color = COLOR_TEXT
     }
     private val tmp = RectF()
 
@@ -84,6 +84,7 @@ class KeyboardView(context: Context) : View(context) {
     // ---- 外部から呼ぶ設定 ----
 
     fun reloadSettings() {
+        pal = Theme.of(context)
         keyHeightDp = Prefs.keyHeightDp(context)
         showNumberRow = Prefs.showNumberRow(context)
         hitCorrection = Prefs.hitCorrection(context)
@@ -207,35 +208,52 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(COLOR_BG)
-        val gap = dp(1.5f)
-        val radius = dp(7f)
+        canvas.drawColor(pal.bg)
+        val gap = dp(2.5f)
+        val radius = dp(10f)
+        val edge = dp(1.8f)
         val rowH = rowHeight()
         val pressedKeys = pressed.values.toSet()
 
         for (row in rows) {
             for (k in row) {
                 if (k.kind == Kind.SPACER) continue
-                tmp.set(k.rect.left + gap, k.rect.top + gap, k.rect.right - gap, k.rect.bottom - gap)
-                keyPaint.color = when {
-                    k in pressedKeys -> COLOR_PRESSED
-                    k.kind == Kind.SHIFT && shift -> COLOR_ACTIVE
-                    k.kind == Kind.MODE -> if (japanese) COLOR_JA else COLOR_EN
-                    isSpecial(k) -> COLOR_SPECIAL
-                    else -> COLOR_KEY
+                tmp.set(k.rect.left + gap, k.rect.top + gap, k.rect.right - gap, k.rect.bottom - gap - edge)
+                val isPressed = k in pressedKeys
+                val colored = !isPressed && (
+                    k.kind == Kind.MODE ||
+                        (k.kind == Kind.SHIFT && shift) ||
+                        (k.kind == Kind.ENTER && composing)
+                    )
+                val fill = when {
+                    isPressed -> pal.pressed
+                    k.kind == Kind.MODE -> if (japanese) pal.ja else pal.en
+                    k.kind == Kind.SHIFT && shift -> pal.accent
+                    k.kind == Kind.ENTER && composing -> pal.accent
+                    isSpecial(k) -> pal.special
+                    else -> pal.key
                 }
+                // 下側に縁を描いて、キーに厚みを出す
+                if (!isPressed) {
+                    keyPaint.color = pal.keyEdge
+                    tmp.offset(0f, edge)
+                    canvas.drawRoundRect(tmp, radius, radius, keyPaint)
+                    tmp.offset(0f, -edge)
+                }
+                keyPaint.color = fill
                 canvas.drawRoundRect(tmp, radius, radius, keyPaint)
 
+                val textColor = if (colored) 0xFFFFFFFF.toInt() else pal.text
                 val hint = k.hint
                 if (hint != null) {
-                    textPaint.color = COLOR_HINT
+                    textPaint.color = pal.hint
                     textPaint.textSize = rowH * 0.24f
                     canvas.drawText(hint, tmp.right - rowH * 0.17f, tmp.top + rowH * 0.28f, textPaint)
-                    textPaint.color = COLOR_TEXT
                 }
                 val label = labelOf(k)
                 if (label.isEmpty()) continue
-                textPaint.textSize = if (label.length >= 2) rowH * 0.27f else rowH * 0.40f
+                textPaint.color = textColor
+                textPaint.textSize = if (label.length >= 2) rowH * 0.27f else rowH * 0.42f
                 val y = tmp.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f
                 canvas.drawText(label, tmp.centerX(), y, textPaint)
             }
@@ -388,14 +406,5 @@ class KeyboardView(context: Context) : View(context) {
     companion object {
         private const val UNLIKELY_PENALTY = 2.4f
         private const val LONG_PRESS_MS = 350L
-        private const val COLOR_JA = 0xFF2F5FB8.toInt()
-        private const val COLOR_EN = 0xFFB86A1E.toInt()
-        private const val COLOR_HINT = 0xFF9AA0AA.toInt()
-        private const val COLOR_BG = 0xFF161616.toInt()
-        private const val COLOR_KEY = 0xFF3B3B3B.toInt()
-        private const val COLOR_SPECIAL = 0xFF2A2A2A.toInt()
-        private const val COLOR_PRESSED = 0xFF5B7FD6.toInt()
-        private const val COLOR_ACTIVE = 0xFF4A6FC4.toInt()
-        private const val COLOR_TEXT = 0xFFF2F2F2.toInt()
     }
 }

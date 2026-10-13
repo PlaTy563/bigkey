@@ -74,8 +74,11 @@ class KeyboardView(context: Context) : View(context) {
     private val keyPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
+        typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
     }
     private val tmp = RectF()
+    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val path = android.graphics.Path()
 
     init {
         reloadSettings()
@@ -202,62 +205,123 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun labelOf(k: Key): String = when (k.kind) {
         Kind.LETTER -> if (shift) k.label.uppercase() else k.label
-        Kind.SPACE -> if (composing) "変換" else if (japanese) "空白（日本語）" else "Space（English）"
-        Kind.ENTER -> if (composing) "確定" else "↵"
+        Kind.SPACE -> if (composing) "変換" else if (japanese) "日本語" else "English"
+        Kind.ENTER -> ""
+        Kind.BACKSPACE, Kind.SHIFT -> ""
         else -> k.label
     }
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(pal.bg)
-        val gap = dp(2.5f)
-        val radius = dp(10f)
-        val edge = dp(1.8f)
+        val gapX = dp(3f)
+        val gapY = dp(4.5f)
+        val radius = dp(12f)
         val rowH = rowHeight()
         val pressedKeys = pressed.values.toSet()
 
         for (row in rows) {
             for (k in row) {
                 if (k.kind == Kind.SPACER) continue
-                tmp.set(k.rect.left + gap, k.rect.top + gap, k.rect.right - gap, k.rect.bottom - gap - edge)
+                tmp.set(k.rect.left + gapX, k.rect.top + gapY, k.rect.right - gapX, k.rect.bottom - gapY)
                 val isPressed = k in pressedKeys
-                val colored = !isPressed && (
-                    k.kind == Kind.MODE ||
-                        (k.kind == Kind.SHIFT && shift) ||
-                        (k.kind == Kind.ENTER && composing)
-                    )
-                val fill = when {
-                    isPressed -> pal.pressed
-                    k.kind == Kind.MODE -> if (japanese) pal.ja else pal.en
-                    k.kind == Kind.SHIFT && shift -> pal.accent
-                    k.kind == Kind.ENTER && composing -> pal.accent
-                    isSpecial(k) -> pal.special
-                    else -> pal.key
-                }
-                // 下側に縁を描いて、キーに厚みを出す
-                if (!isPressed) {
-                    keyPaint.color = pal.keyEdge
-                    tmp.offset(0f, edge)
-                    canvas.drawRoundRect(tmp, radius, radius, keyPaint)
-                    tmp.offset(0f, -edge)
+                var fill = pal.key
+                var fg = pal.text
+                when {
+                    isPressed -> fill = pal.pressed
+                    k.kind == Kind.MODE -> {
+                        fill = if (japanese) pal.ja else pal.en
+                        fg = if (japanese) pal.jaText else pal.enText
+                    }
+                    k.kind == Kind.SHIFT && shift -> { fill = pal.accent; fg = pal.accentText }
+                    k.kind == Kind.ENTER -> { fill = pal.accent; fg = pal.accentText }
+                    isSpecial(k) -> fill = pal.special
                 }
                 keyPaint.color = fill
                 canvas.drawRoundRect(tmp, radius, radius, keyPaint)
 
-                val textColor = if (colored) 0xFFFFFFFF.toInt() else pal.text
-                val hint = k.hint
-                if (hint != null) {
-                    textPaint.color = pal.hint
-                    textPaint.textSize = rowH * 0.24f
-                    canvas.drawText(hint, tmp.right - rowH * 0.17f, tmp.top + rowH * 0.28f, textPaint)
+                val cx = tmp.centerX()
+                val cy = tmp.centerY()
+                val s = rowH * 0.15f
+                when (k.kind) {
+                    Kind.BACKSPACE -> drawBackspace(canvas, cx, cy, s, fg)
+                    Kind.SHIFT -> drawShift(canvas, cx, cy, s, fg, shift)
+                    Kind.ENTER -> if (composing) drawLabel(canvas, "確定", cx, cy, rowH * 0.27f, fg) else drawEnter(canvas, cx, cy, s, fg)
+                    else -> {
+                        val hint = k.hint
+                        if (hint != null) {
+                            textPaint.color = pal.hint
+                            textPaint.textSize = rowH * 0.22f
+                            canvas.drawText(hint, tmp.right - rowH * 0.16f, tmp.top + rowH * 0.27f, textPaint)
+                        }
+                        val label = labelOf(k)
+                        if (label.isNotEmpty()) {
+                            val size = if (label.length >= 2) rowH * 0.26f else rowH * 0.40f
+                            val color = if (k.kind == Kind.SPACE && !composing) pal.hint else fg
+                            drawLabel(canvas, label, cx, cy, size, color)
+                        }
+                    }
                 }
-                val label = labelOf(k)
-                if (label.isEmpty()) continue
-                textPaint.color = textColor
-                textPaint.textSize = if (label.length >= 2) rowH * 0.27f else rowH * 0.42f
-                val y = tmp.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f
-                canvas.drawText(label, tmp.centerX(), y, textPaint)
             }
         }
+    }
+
+    private fun drawLabel(canvas: Canvas, label: String, cx: Float, cy: Float, size: Float, color: Int) {
+        textPaint.color = color
+        textPaint.textSize = size
+        val y = cy - (textPaint.descent() + textPaint.ascent()) / 2f
+        canvas.drawText(label, cx, y, textPaint)
+    }
+
+    private fun strokePaint(color: Int): Paint {
+        iconPaint.color = color
+        iconPaint.style = Paint.Style.STROKE
+        iconPaint.strokeWidth = dp(2f)
+        iconPaint.strokeCap = Paint.Cap.ROUND
+        iconPaint.strokeJoin = Paint.Join.ROUND
+        return iconPaint
+    }
+
+    private fun drawBackspace(c: Canvas, x: Float, y: Float, s: Float, color: Int) {
+        val p = strokePaint(color)
+        path.reset()
+        path.moveTo(x - s * 1.4f, y)
+        path.lineTo(x - s * 0.6f, y - s * 0.95f)
+        path.lineTo(x + s * 1.4f, y - s * 0.95f)
+        path.lineTo(x + s * 1.4f, y + s * 0.95f)
+        path.lineTo(x - s * 0.6f, y + s * 0.95f)
+        path.close()
+        c.drawPath(path, p)
+        c.drawLine(x - s * 0.1f, y - s * 0.4f, x + s * 0.8f, y + s * 0.4f, p)
+        c.drawLine(x - s * 0.1f, y + s * 0.4f, x + s * 0.8f, y - s * 0.4f, p)
+    }
+
+    private fun drawShift(c: Canvas, x: Float, y: Float, s: Float, color: Int, filled: Boolean) {
+        val p = strokePaint(color)
+        if (filled) p.style = Paint.Style.FILL_AND_STROKE
+        path.reset()
+        path.moveTo(x, y - s * 1.2f)
+        path.lineTo(x + s * 1.2f, y + s * 0.1f)
+        path.lineTo(x + s * 0.55f, y + s * 0.1f)
+        path.lineTo(x + s * 0.55f, y + s * 1.1f)
+        path.lineTo(x - s * 0.55f, y + s * 1.1f)
+        path.lineTo(x - s * 0.55f, y + s * 0.1f)
+        path.lineTo(x - s * 1.2f, y + s * 0.1f)
+        path.close()
+        c.drawPath(path, p)
+    }
+
+    private fun drawEnter(c: Canvas, x: Float, y: Float, s: Float, color: Int) {
+        val p = strokePaint(color)
+        path.reset()
+        path.moveTo(x + s * 1.2f, y - s * 0.9f)
+        path.lineTo(x + s * 1.2f, y + s * 0.2f)
+        path.lineTo(x - s * 1.2f, y + s * 0.2f)
+        c.drawPath(path, p)
+        path.reset()
+        path.moveTo(x - s * 0.45f, y - s * 0.55f)
+        path.lineTo(x - s * 1.2f, y + s * 0.2f)
+        path.lineTo(x - s * 0.45f, y + s * 0.95f)
+        c.drawPath(path, p)
     }
 
     // ---- タッチ ----

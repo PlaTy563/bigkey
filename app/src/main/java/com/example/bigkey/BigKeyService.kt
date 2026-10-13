@@ -78,22 +78,32 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             textSize = 14f
             gravity = Gravity.CENTER
             setPadding(dp(14), 0, dp(14), 0)
-            setTextColor(0xFFFFFFFF.toInt())
-            setBackgroundColor(Theme.of(this@BigKeyService).accent)
+            val p = Theme.of(this@BigKeyService)
+            setTextColor(p.accentText)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(p.accent)
+                cornerRadius = dp(18).toFloat()
+            }
             setOnClickListener { launchBitwarden() }
         }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Theme.of(this@BigKeyService).bar)
             addView(barFrame, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-            addView(bwButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(
+                bwButton,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setMargins(dp(4), 0, dp(8), 0)
+                }
+            )
         }
         kb = KeyboardView(this).also {
             it.listener = this
             // 日本語入力中だけ、ローマ字として続かないキーを選ばれにくくする
             it.likelyPredicate = { c -> !japanese || composer.canContinue(c) }
         }
-        root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
+        root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
         root.addView(
             kb,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -317,16 +327,25 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         if (!::candRow.isInitialized) return
         candRow.removeAllViews()
         updateBarVisibility()
+        val pal = Theme.of(this)
         candidates.forEachIndexed { i, c ->
+            if (i > 0 && i - 1 != candIndex && i != candIndex) {
+                candRow.addView(
+                    View(this).apply { setBackgroundColor(pal.divider) },
+                    LinearLayout.LayoutParams(dp(1), dp(20)).apply { gravity = Gravity.CENTER_VERTICAL }
+                )
+            }
             val tv = TextView(this).apply {
                 text = c.text
                 textSize = 20f
-                gravity = Gravity.CENTER_VERTICAL
+                gravity = Gravity.CENTER
                 setPadding(dp(16), 0, dp(16), 0)
-                val pal = Theme.of(this@BigKeyService)
                 if (i == candIndex) {
-                    setTextColor(0xFFFFFFFF.toInt())
-                    setBackgroundColor(pal.accent)
+                    setTextColor(pal.accentText)
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(pal.accent)
+                        cornerRadius = dp(18).toFloat()
+                    }
                 } else {
                     setTextColor(pal.text)
                 }
@@ -336,7 +355,10 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             }
             candRow.addView(
                 tv,
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setMargins(0, dp(4), 0, dp(4))
+                }
             )
         }
         if (candIndex >= 0) {
@@ -377,7 +399,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             val styles = UiVersions.newStylesBuilder()
                 .addStyle(InlineSuggestionUi.newStyleBuilder().build())
                 .build()
-            val spec = InlinePresentationSpec.Builder(Size(dp(100), dp(40)), Size(dp(400), dp(44)))
+            val spec = InlinePresentationSpec.Builder(Size(dp(100), dp(40)), Size(dp(400), dp(48)))
                 .setStyle(styles)
                 .build()
             InlineSuggestionsRequest.Builder(listOf(spec))

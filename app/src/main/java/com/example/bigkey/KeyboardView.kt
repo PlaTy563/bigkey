@@ -24,7 +24,13 @@ class KeyboardView(context: Context) : View(context) {
 
     enum class Kind { LETTER, DIGIT, SYMBOL, SPACE, BACKSPACE, ENTER, MODE, SHIFT, LAYER, SPACER }
 
-    class Key(val kind: Kind, val label: String, val text: String = label, val weight: Float = 1f) {
+    class Key(
+        val kind: Kind,
+        val label: String,
+        val text: String = label,
+        val weight: Float = 1f,
+        val hint: String? = null,
+    ) {
         val rect = RectF()
     }
 
@@ -52,6 +58,8 @@ class KeyboardView(context: Context) : View(context) {
 
     private var rows: List<List<Key>> = emptyList()
     private val pressed = HashMap<Int, Key>()
+    private val longPress = HashMap<Int, Runnable>()
+    private val longFired = HashSet<Int>()
 
     private val handler = Handler(Looper.getMainLooper())
     private var repeatPointer = -1
@@ -112,7 +120,9 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun buildRows(): List<List<Key>> {
         val res = ArrayList<List<Key>>()
-        fun letters(s: String) = s.map { Key(Kind.LETTER, it.toString()) }
+        fun letters(s: String, hints: String = "") = s.mapIndexed { i, c ->
+            Key(Kind.LETTER, c.toString(), hint = hints.getOrNull(i)?.toString())
+        }
         fun digits(s: String) = s.map { Key(Kind.DIGIT, it.toString()) }
         fun symbols(s: String) = s.map { Key(Kind.SYMBOL, it.toString()) }
 
@@ -124,18 +134,18 @@ class KeyboardView(context: Context) : View(context) {
                 listOf(Key(Kind.BACKSPACE, "⌫", weight = 1.5f))
         } else {
             if (showNumberRow) res += digits("1234567890")
-            res += letters("qwertyuiop")
+            res += letters("qwertyuiop", if (showNumberRow) "" else "1234567890")
             res += listOf(Key(Kind.SPACER, "", weight = 0.5f)) +
-                letters("asdfghjkl") +
+                letters("asdfghjkl", "@#$%&-+()") +
                 listOf(Key(Kind.SPACER, "", weight = 0.5f))
             res += listOf(Key(Kind.SHIFT, "⇧", weight = 1.5f)) +
-                letters("zxcvbnm") +
+                letters("zxcvbnm", "*\"':;!?") +
                 listOf(Key(Kind.BACKSPACE, "⌫", weight = 1.5f))
         }
 
         res += listOf(
             Key(Kind.LAYER, if (symbolLayer) "文字" else "記号", weight = 1.2f),
-            Key(Kind.MODE, if (japanese) "あ" else "A", weight = 1.2f),
+            Key(Kind.MODE, if (japanese) "日本語" else "English", weight = 1.7f),
             Key(Kind.SYMBOL, if (japanese) "、" else ",", weight = 1f),
             Key(Kind.SPACE, "", weight = 3f),
             Key(Kind.SYMBOL, if (japanese) "。" else ".", weight = 1f),
@@ -191,7 +201,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun labelOf(k: Key): String = when (k.kind) {
         Kind.LETTER -> if (shift) k.label.uppercase() else k.label
-        Kind.SPACE -> if (composing) "変換" else if (japanese) "空白" else ""
+        Kind.SPACE -> if (composing) "変換" else if (japanese) "空白（日本語）" else "Space（English）"
         Kind.ENTER -> if (composing) "確定" else "↵"
         else -> k.label
     }
@@ -210,11 +220,19 @@ class KeyboardView(context: Context) : View(context) {
                 keyPaint.color = when {
                     k in pressedKeys -> COLOR_PRESSED
                     k.kind == Kind.SHIFT && shift -> COLOR_ACTIVE
+                    k.kind == Kind.MODE -> if (japanese) COLOR_JA else COLOR_EN
                     isSpecial(k) -> COLOR_SPECIAL
                     else -> COLOR_KEY
                 }
                 canvas.drawRoundRect(tmp, radius, radius, keyPaint)
 
+                val hint = k.hint
+                if (hint != null) {
+                    textPaint.color = COLOR_HINT
+                    textPaint.textSize = rowH * 0.24f
+                    canvas.drawText(hint, tmp.right - rowH * 0.17f, tmp.top + rowH * 0.28f, textPaint)
+                    textPaint.color = COLOR_TEXT
+                }
                 val label = labelOf(k)
                 if (label.isEmpty()) continue
                 textPaint.textSize = if (label.length >= 2) rowH * 0.27f else rowH * 0.40f
@@ -281,14 +299,33 @@ class KeyboardView(context: Context) : View(context) {
             repeatPointer = id
             handler.postDelayed(repeatRunnable, 400)
         }
+        if (k.hint != null) {
+            val r = Runnable {
+                longPress.remove(id)
+                if (pressed[id] === k) {
+                    longFired.add(id)
+                    if (haptic) performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    val h = k.hint ?: return@Runnable
+                    listener?.onText(Key(if (h[0].isDigit()) Kind.DIGIT else Kind.SYMBOL, h), false)
+                    invalidate()
+                }
+            }
+            longPress[id] = r
+            handler.postDelayed(r, LONG_PRESS_MS)
+        }
         invalidate()
+    }
+
+    private fun cancelLongPress(id: Int) {
+        longPress.remove(id)?.let { handler.removeCallbacks(it) }
     }
 
     private fun onMove(id: Int, x: Float, y: Float) {
         val cur = pressed[id] ?: return
         if (id == repeatPointer) return
         val next = hit(x, y) ?: return
-        if (next !== cur) {
+        if (next !== cur && id !in longFired) {
+            cancelLongPress(id)
             pressed[id] = next
             invalidate()
         }
@@ -296,6 +333,11 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun onUp(id: Int, x: Float, y: Float) {
         val cur = pressed.remove(id)
+        cancelLongPress(id)
+        if (longFired.remove(id)) {
+            invalidate()
+            return
+        }
         if (id == repeatPointer) {
             stopRepeat()
             invalidate()
@@ -308,6 +350,8 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun cancelAll() {
+        for (id in longPress.keys.toList()) cancelLongPress(id)
+        longFired.clear()
         pressed.clear()
         stopRepeat()
         invalidate()
@@ -343,6 +387,10 @@ class KeyboardView(context: Context) : View(context) {
 
     companion object {
         private const val UNLIKELY_PENALTY = 2.4f
+        private const val LONG_PRESS_MS = 350L
+        private const val COLOR_JA = 0xFF2F5FB8.toInt()
+        private const val COLOR_EN = 0xFFB86A1E.toInt()
+        private const val COLOR_HINT = 0xFF9AA0AA.toInt()
         private const val COLOR_BG = 0xFF161616.toInt()
         private const val COLOR_KEY = 0xFF3B3B3B.toInt()
         private const val COLOR_SPECIAL = 0xFF2A2A2A.toInt()

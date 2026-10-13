@@ -11,6 +11,19 @@ class Composer {
     private var pending = ""
     private var hiddenN = false
 
+    /** 大文字から始めた英字の連続入力中。この間の英字はローマ字変換せず、そのまま並べる。 */
+    var alphaRun = false
+        private set
+
+    fun startAlphaRun(first: String) {
+        appendLiteral(first)
+        alphaRun = true
+    }
+
+    fun endAlphaRun() {
+        alphaRun = false
+    }
+
     fun isEmpty(): Boolean = kana.isEmpty() && pending.isEmpty()
 
     /** 画面に表示する文字列（かな＋未確定ローマ字）。 */
@@ -83,6 +96,14 @@ class Composer {
     }
 
     fun backspace() {
+        try {
+            backspaceInner()
+        } finally {
+            if (isEmpty()) alphaRun = false
+        }
+    }
+
+    private fun backspaceInner() {
         if (hiddenN) {
             hiddenN = false
             pending = ""
@@ -97,6 +118,7 @@ class Composer {
     }
 
     fun clear() {
+        alphaRun = false
         kana.setLength(0)
         pending = ""
         hiddenN = false

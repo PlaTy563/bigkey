@@ -160,11 +160,19 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         if (candIndex >= 0) commitCandidateAt(ic, candIndex)
 
         if (key.kind == KeyboardView.Kind.LETTER) {
-            if (shifted) composer.appendLiteral(key.text.uppercase()) else composer.inputLetter(key.text[0])
+            if (shifted) {
+                // 大文字から始まる英字の連続入力（例: Apple）。続く英字はかなに変換しない
+                composer.startAlphaRun(key.text.uppercase())
+            } else if (composer.alphaRun) {
+                composer.appendLiteral(key.text.lowercase())
+            } else {
+                composer.inputLetter(key.text[0])
+            }
             syncComposition(ic)
         } else if (composer.isEmpty()) {
             ic.commitText(key.text, 1)
         } else {
+            composer.endAlphaRun()
             composer.appendLiteral(key.text)
             syncComposition(ic)
         }

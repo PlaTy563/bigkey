@@ -18,6 +18,9 @@ class Composer {
 
     fun kanaText(): String = kana.toString()
 
+    /** かなになっていない末尾のローマ字（画面に出ている分）。 */
+    fun trailingRomaji(): String = if (hiddenN) "" else pending
+
     /** 変換候補の検索に使う読み。末尾の n は「ん」として扱う。 */
     fun previewReading(): String =
         kana.toString() + (if (!hiddenN && pending == "n") "ん" else "")

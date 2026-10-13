@@ -102,10 +102,30 @@ class SettingsActivity : ComponentActivity() {
         root.addView(switchRow("数字の段を常に表示する", Prefs.SHOW_NUMBER_ROW, false))
         root.addView(switchRow("誤タップ補正（ローマ字として続かないキーを選びにくくする）", Prefs.HIT_CORRECTION, true))
         root.addView(switchRow("キーを押したときに振動する", Prefs.HAPTIC, true))
+        root.addView(switchRow("自動変換（打ちながら漢字に変換して表示する）", Prefs.AUTO_CONVERT, true))
+        root.addView(switchRow("Bitwarden のボタンと自動入力の候補を表示する", Prefs.SHOW_BITWARDEN, true))
+        root.addView(TextView(this).apply {
+            text = "自動入力の候補を出すには、端末の設定で Bitwarden を自動入力サービスに選び、「インライン候補」を有効にしてください。"
+            textSize = 13f
+        })
 
         root.addView(heading("バックアップ（設定と学習履歴）"))
         root.addView(button("ファイルに書き出す") { exportLauncher.launch("bigkey-backup.json") })
         root.addView(button("ファイルから復元する") { importLauncher.launch(arrayOf("*/*")) })
+
+        root.addView(heading("ライセンス"))
+        root.addView(button("変換辞書のライセンスを見る") {
+            val text = try {
+                assets.open("licenses.txt").use { it.readBytes().toString(Charsets.UTF_8) }
+            } catch (e: Exception) {
+                "読み込めませんでした"
+            }
+            android.app.AlertDialog.Builder(this)
+                .setTitle("ライセンス")
+                .setMessage(text)
+                .setPositiveButton("閉じる", null)
+                .show()
+        })
     }
 
     private fun doExport(uri: Uri) {

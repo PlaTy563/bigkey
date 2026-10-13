@@ -27,9 +27,18 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-## 辞書
+## 辞書・変換
 
-`app/src/main/assets/dict.txt` は仮の小規模辞書。形式は `よみ 候補1,候補2`。実用にするには大きな辞書に差し替える。
+- 変換辞書は Mozc (OSS版) の辞書と接続表から作った `app/src/main/assets/dict.bin` と `conn.bin`。ライセンスは `licenses.txt`（アプリの設定画面からも見られる）。
+- 作り直す手順: `python3 -I tools/build_dict.py <Mozcのdictionary_ossのフォルダ> <出力先> --max-cost 6300 --kata-max-cost 5300 --per-reading 20`
+- 変換は文全体の最適な区切りを探す方式（`Converter.java`）。手元での確認は `tools/ConverterCli.java`。
+- 自動変換: 打ちながら先頭候補を表示する。設定でオフにできる。
+- 選んだ候補は単語ごとに学習し、バックアップに含まれる。
+
+## Bitwarden
+
+- 候補バーの右端に Bitwarden を開くボタンを出す。
+- Android 11 以上で、Bitwarden を自動入力サービスに選び、インライン候補を有効にすると、ログイン候補がキーボード上に出る。
 
 ## バックアップ
 

@@ -2,77 +2,57 @@ package com.example.bigkey
 
 import android.content.Context
 
-/**
- * 変換辞書。assets/dict.txt を読み込む。
- * 形式: 「よみ 候補1,候補2,…」（1行1語、先頭が # の行はコメント）
- */
+/** 変換の窓口。辞書(assets/dict.bin, conn.bin)は別スレッドで読み込む。読み込み前はひらがな・カタカナだけを返す。 */
 class Dictionary(context: Context) {
-    private val map = HashMap<String, MutableList<String>>()
-    private var maxReadingLen = 1
+    class Cand(val text: String, val segReading: String?, val segSurface: String?)
+
+    @Volatile
+    private var converter: Converter? = null
     private val learn = LearnStore.instance(context)
 
+    private val bias = Converter.Bias { reading, surface -> learn.count(reading, surface) }
+
     init {
-        try {
-            context.assets.open("dict.txt").bufferedReader(Charsets.UTF_8).useLines { lines ->
-                for (line in lines) {
-                    if (line.isBlank() || line.startsWith("#")) continue
-                    val idx = line.indexOf(' ')
-                    if (idx <= 0) continue
-                    val reading = line.substring(0, idx)
-                    val words = line.substring(idx + 1).split(',').map { it.trim() }.filter { it.isNotEmpty() }
-                    if (words.isEmpty()) continue
-                    map.getOrPut(reading) { ArrayList() }.addAll(words)
-                    if (reading.length > maxReadingLen) maxReadingLen = reading.length
-                }
+        val app = context.applicationContext
+        Thread {
+            try {
+                val d = app.assets.open("dict.bin").use { it.readBytes() }
+                val c = app.assets.open("conn.bin").use { it.readBytes() }
+                converter = Converter.load(d, c)
+            } catch (_: Throwable) {
+                // 辞書がなくても、ひらがな・カタカナ入力は使える
             }
-        } catch (_: Exception) {
-            // 辞書がなくても、ひらがな・カタカナ入力は使える
-        }
+        }.start()
     }
 
-    /** 候補の並び: 辞書の候補（学習順）→ 文節ごとの最長一致変換 → ひらがな → カタカナ */
-    fun candidates(reading: String): List<String> {
+    /** 候補の並び: 変換結果（先頭が最有力）→ ひらがな → カタカナ */
+    fun candidates(reading: String, limit: Int = 8): List<Cand> {
         if (reading.isEmpty()) return emptyList()
-        val out = LinkedHashSet<String>()
-        map[reading]?.sortedByDescending { learn.count(reading, it) }?.let { out.addAll(it) }
-        segment(reading)?.let { out.add(it) }
-        out.add(reading)
-        out.add(toKatakana(reading))
-        return out.toList()
-    }
-
-    fun learn(reading: String, cand: String) {
-        learn.record(reading, cand)
-    }
-
-    private fun best(reading: String, words: List<String>): String =
-        words.maxByOrNull { learn.count(reading, it) } ?: words.first()
-
-    /** 先頭から最長一致で区切って変換する。辞書にない部分はそのまま残す。 */
-    private fun segment(reading: String): String? {
-        val sb = StringBuilder()
-        var i = 0
-        var converted = false
-        while (i < reading.length) {
-            var matched = false
-            val maxLen = minOf(maxReadingLen, reading.length - i)
-            for (len in maxLen downTo 1) {
-                val key = reading.substring(i, i + len)
-                val words = map[key]
-                if (words != null) {
-                    sb.append(best(key, words))
-                    i += len
-                    matched = true
-                    converted = true
-                    break
+        val out = ArrayList<Cand>()
+        val seen = HashSet<String>()
+        converter?.let { conv ->
+            try {
+                for (c in conv.convert(reading, limit, bias)) {
+                    if (!seen.add(c.text)) continue
+                    val seg = if (c.segSurface != null && c.segStart >= 0) reading.substring(c.segStart, c.segEnd) else null
+                    out.add(Cand(c.text, seg, c.segSurface))
                 }
-            }
-            if (!matched) {
-                sb.append(reading[i])
-                i++
+            } catch (_: Throwable) {
             }
         }
-        return if (converted) sb.toString() else null
+        if (seen.add(reading)) out.add(Cand(reading, null, null))
+        val kata = toKatakana(reading)
+        if (seen.add(kata)) out.add(Cand(kata, null, null))
+        return out
+    }
+
+    /** 選んだ候補を覚える。差し替えた単語があればその単位で、全体がひらがな・カタカナ変換なら全体で覚える。 */
+    fun learn(reading: String, cand: Cand) {
+        if (cand.segReading != null && cand.segSurface != null) {
+            learn.record(cand.segReading, cand.segSurface)
+        } else if (cand.text != reading && cand.text == toKatakana(reading)) {
+            learn.record(reading, cand.text)
+        }
     }
 
     private fun toKatakana(s: String): String {

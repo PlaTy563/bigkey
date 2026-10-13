@@ -1,6 +1,16 @@
 package com.example.bigkey
 
+import android.content.Intent
 import android.inputmethodservice.InputMethodService
+import android.os.Build
+import android.os.Bundle
+import android.util.Size
+import android.view.inputmethod.InlineSuggestionsRequest
+import android.view.inputmethod.InlineSuggestionsResponse
+import android.widget.FrameLayout
+import androidx.autofill.inline.UiVersions
+import androidx.autofill.inline.v1.InlineSuggestionUi
+import android.widget.inline.InlinePresentationSpec
 import android.text.InputType
 import android.view.Gravity
 import android.view.KeyEvent
@@ -17,6 +27,9 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private lateinit var kb: KeyboardView
     private lateinit var candScroll: HorizontalScrollView
     private lateinit var candRow: LinearLayout
+    private lateinit var autoScroll: HorizontalScrollView
+    private lateinit var autoRow: LinearLayout
+    private lateinit var bwButton: TextView
     private lateinit var dict: Dictionary
     private val composer = Composer()
 
@@ -24,8 +37,9 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private var userJapanese = true // 利用者が最後に選んだ日本語/英字
     private var noLearn = false
 
-    private var candidates: List<String> = emptyList()
+    private var candidates: List<Dictionary.Cand> = emptyList()
     private var candidateReading = ""
+    private var liveActive = false // 自動変換で、候補の先頭を入力中の文字列として表示している
     private var candIndex = -1 // -1: 変換前、0以上: 変換中（選択中の候補）
 
     override fun onCreate() {
@@ -46,12 +60,39 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
                 ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT)
             )
         }
+        autoRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        autoScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            visibility = View.GONE
+            addView(
+                autoRow,
+                ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            )
+        }
+        val barFrame = FrameLayout(this).apply {
+            addView(candScroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(autoScroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        bwButton = TextView(this).apply {
+            text = "Bitwarden"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(14), 0, dp(14), 0)
+            setTextColor(0xFFEEEEEE.toInt())
+            setBackgroundColor(0xFF2F4F8F.toInt())
+            setOnClickListener { launchBitwarden() }
+        }
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(barFrame, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            addView(bwButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
         kb = KeyboardView(this).also {
             it.listener = this
             // 日本語入力中だけ、ローマ字として続かないキーを選ばれにくくする
             it.likelyPredicate = { c -> !japanese || composer.canContinue(c) }
         }
-        root.addView(candScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
+        root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
         root.addView(
             kb,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -76,6 +117,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
 
         japanese = userJapanese && !forceEnglish
         kb.reloadSettings()
+        bwButton.visibility = if (Prefs.showBitwarden(this) && bitwardenIntent() != null) View.VISIBLE else View.GONE
         kb.setJapanese(japanese)
         kb.setSymbolLayer(
             cls == InputType.TYPE_CLASS_NUMBER ||
@@ -144,11 +186,12 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             }
             candidateReading = reading
             candidates = dict.candidates(reading)
-            candIndex = 0
+            // 自動変換中はすでに先頭の候補が表示されているので、次の候補へ進める
+            candIndex = if (liveActive && candidates.size > 1) 1 else 0
         } else {
             candIndex = (candIndex + 1) % candidates.size
         }
-        ic.setComposingText(candidates[candIndex], 1)
+        ic.setComposingText(candidates[candIndex].text, 1)
         refreshBar()
     }
 
@@ -175,9 +218,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             if (candIndex >= 0) {
                 commitCandidateAt(ic, candIndex)
             } else {
-                composer.flushPending()
-                ic.commitText(composer.kanaText(), 1)
-                clearState()
+                commitAsIs(ic)
             }
             return
         }
@@ -203,11 +244,25 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
 
     /** 入力中の文字列をエディタに反映し、変換候補を更新する。 */
     private fun syncComposition(ic: InputConnection) {
-        val text = composer.displayText()
-        if (text.isEmpty()) ic.commitText("", 1) else ic.setComposingText(text, 1)
-        candidateReading = composer.previewReading()
-        candidates = dict.candidates(candidateReading)
+        val trailing = composer.trailingRomaji()
+        val kana = composer.kanaText()
+        liveActive = false
+        if (Prefs.autoConvert(this) && kana.isNotEmpty()) {
+            candidateReading = kana
+            candidates = dict.candidates(kana)
+            liveActive = candidates.isNotEmpty()
+        } else {
+            candidateReading = composer.previewReading()
+            candidates = dict.candidates(candidateReading)
+        }
         candIndex = -1
+        if (composer.isEmpty()) {
+            ic.commitText("", 1)
+        } else if (liveActive) {
+            ic.setComposingText(candidates[0].text + trailing, 1)
+        } else {
+            ic.setComposingText(composer.displayText(), 1)
+        }
         refreshBar()
         kb.setComposing(!composer.isEmpty())
     }
@@ -217,16 +272,25 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         if (candIndex >= 0) {
             commitCandidateAt(ic, candIndex)
         } else if (!composer.isEmpty()) {
-            composer.flushPending()
-            ic.commitText(composer.kanaText(), 1)
+            val trailing = composer.trailingRomaji()
+            if (liveActive) {
+                val cand = candidates[0]
+                ic.commitText(cand.text + trailing, 1)
+                if (!noLearn) dict.learn(candidateReading, cand)
+            } else {
+                composer.flushPending()
+                ic.commitText(composer.kanaText(), 1)
+            }
             clearState()
         }
     }
 
     private fun commitCandidateAt(ic: InputConnection, index: Int) {
         val cand = candidates.getOrNull(index) ?: return
-        ic.commitText(cand, 1)
-        if (!noLearn && cand != candidateReading) dict.learn(candidateReading, cand)
+        // 末尾に未確定のローマ字が残っているときは、それもそのまま確定する
+        val trailing = if (liveActive && candIndex < 0) composer.trailingRomaji() else ""
+        ic.commitText(cand.text + trailing, 1)
+        if (!noLearn && cand.text != candidateReading) dict.learn(candidateReading, cand)
         clearState()
     }
 
@@ -235,6 +299,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         candidates = emptyList()
         candidateReading = ""
         candIndex = -1
+        liveActive = false
         refreshBar()
         if (::kb.isInitialized) kb.setComposing(false)
     }
@@ -242,9 +307,10 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private fun refreshBar() {
         if (!::candRow.isInitialized) return
         candRow.removeAllViews()
+        updateBarVisibility()
         candidates.forEachIndexed { i, c ->
             val tv = TextView(this).apply {
-                text = c
+                text = c.text
                 textSize = 18f
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(16), 0, dp(16), 0)
@@ -264,6 +330,73 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         } else {
             candScroll.scrollTo(0, 0)
         }
+    }
+
+    private fun updateBarVisibility() {
+        val showAuto = autoRow.childCount > 0 && candidates.isEmpty() && composer.isEmpty()
+        autoScroll.visibility = if (showAuto) View.VISIBLE else View.GONE
+        candScroll.visibility = if (showAuto) View.INVISIBLE else View.VISIBLE
+    }
+
+    // ---- Bitwarden ----
+
+    private fun bitwardenIntent(): Intent? {
+        for (pkg in listOf("com.x8bit.bitwarden", "com.x8bit.bitwarden.beta")) {
+            packageManager.getLaunchIntentForPackage(pkg)?.let { return it }
+        }
+        return null
+    }
+
+    private fun launchBitwarden() {
+        val i = bitwardenIntent() ?: return
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            startActivity(i)
+        } catch (_: Exception) {
+        }
+    }
+
+    /** 自動入力の候補（Bitwarden など）をキーボード上に出すための要求。Android 11 以上。 */
+    override fun onCreateInlineSuggestionsRequest(uiExtras: Bundle): InlineSuggestionsRequest? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || !Prefs.showBitwarden(this)) return null
+        return try {
+            val styles = UiVersions.newStylesBuilder()
+                .addStyle(InlineSuggestionUi.newStyleBuilder().build())
+                .build()
+            val spec = InlinePresentationSpec.Builder(Size(dp(100), dp(40)), Size(dp(400), dp(44)))
+                .setStyle(styles)
+                .build()
+            InlineSuggestionsRequest.Builder(listOf(spec))
+                .setMaxSuggestionCount(6)
+                .build()
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    override fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || !::autoRow.isInitialized) return false
+        autoRow.removeAllViews()
+        val list = response.inlineSuggestions
+        if (list.isEmpty()) {
+            updateBarVisibility()
+            return false
+        }
+        val size = Size(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44))
+        var pending = list.size
+        for (s in list) {
+            try {
+                s.inflate(this, size, mainExecutor) { v ->
+                    if (v != null) {
+                        autoRow.addView(v)
+                        updateBarVisibility()
+                    }
+                }
+            } catch (_: Throwable) {
+                pending--
+            }
+        }
+        return pending > 0
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()

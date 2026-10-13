@@ -8,6 +8,8 @@ object Prefs {
     const val SHOW_NUMBER_ROW = "show_number_row"
     const val HIT_CORRECTION = "hit_correction"
     const val HAPTIC = "haptic"
+    const val AUTO_CONVERT = "auto_convert"
+    const val SHOW_BITWARDEN = "show_bitwarden"
 
     const val DEFAULT_HEIGHT = 64
     const val MIN_HEIGHT = 44
@@ -24,4 +26,8 @@ object Prefs {
     fun hitCorrection(ctx: Context): Boolean = get(ctx).getBoolean(HIT_CORRECTION, true)
 
     fun haptic(ctx: Context): Boolean = get(ctx).getBoolean(HAPTIC, true)
+
+    fun autoConvert(ctx: Context): Boolean = get(ctx).getBoolean(AUTO_CONVERT, true)
+
+    fun showBitwarden(ctx: Context): Boolean = get(ctx).getBoolean(SHOW_BITWARDEN, true)
 }

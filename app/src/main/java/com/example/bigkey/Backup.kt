@@ -14,6 +14,8 @@ object Backup {
             .put(Prefs.SHOW_NUMBER_ROW, Prefs.showNumberRow(ctx))
             .put(Prefs.HIT_CORRECTION, Prefs.hitCorrection(ctx))
             .put(Prefs.HAPTIC, Prefs.haptic(ctx))
+            .put(Prefs.AUTO_CONVERT, Prefs.autoConvert(ctx))
+            .put(Prefs.SHOW_BITWARDEN, Prefs.showBitwarden(ctx))
         return JSONObject()
             .put("app", APP_ID)
             .put("version", VERSION)
@@ -39,6 +41,8 @@ object Backup {
             if (s.has(Prefs.SHOW_NUMBER_ROW)) e.putBoolean(Prefs.SHOW_NUMBER_ROW, s.optBoolean(Prefs.SHOW_NUMBER_ROW))
             if (s.has(Prefs.HIT_CORRECTION)) e.putBoolean(Prefs.HIT_CORRECTION, s.optBoolean(Prefs.HIT_CORRECTION, true))
             if (s.has(Prefs.HAPTIC)) e.putBoolean(Prefs.HAPTIC, s.optBoolean(Prefs.HAPTIC, true))
+            if (s.has(Prefs.AUTO_CONVERT)) e.putBoolean(Prefs.AUTO_CONVERT, s.optBoolean(Prefs.AUTO_CONVERT, true))
+            if (s.has(Prefs.SHOW_BITWARDEN)) e.putBoolean(Prefs.SHOW_BITWARDEN, s.optBoolean(Prefs.SHOW_BITWARDEN, true))
             e.apply()
         }
 

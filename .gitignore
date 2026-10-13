@@ -1,0 +1,14 @@
+*.iml
+.gradle/
+.idea/
+.DS_Store
+local.properties
+build/
+app/build/
+
+# リリース署名用keystoreは絶対にコミットしない
+*.jks
+*.keystore
+release.keystore
+# 固定デバッグ署名鍵（標準パスワードの非秘匿ファイル）だけは例外としてコミットする
+!keystore/debug.keystore

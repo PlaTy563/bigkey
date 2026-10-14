@@ -2,6 +2,7 @@ package com.example.bigkey;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.HashSet;
@@ -59,6 +60,8 @@ public final class Converter {
     }
 
     private static final int ALT_MAX_DELTA = 3500;
+    private static final int LIVE_CONFIDENT_DELTA = 1000;
+    private static final int LIVE_HOLD = 2;
     private static final int PREDICT_LEN_PENALTY = 350;
     private static final int PREDICT_SCAN_MAX = 60000;
 
@@ -234,6 +237,15 @@ public final class Converter {
         return (c >= 'ぁ' && c <= 'ゖ') || c == 'ー';
     }
 
+    private static boolean isAllKana(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            if (!isKana(s.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static boolean isDigit(char c) {
         return c >= '0' && c <= '9';
     }
@@ -304,6 +316,19 @@ public final class Converter {
      * @param bias 利用者が過去に選んだ回数。null なら使わない。
      */
     public List<Candidate> convert(String reading, int limit, Bias bias) {
+        return run(reading, limit, bias, false);
+    }
+
+    /**
+     * 自動変換（打ちながら表示する）用の文字列。確信のある単語だけ変換し、
+     * 他の候補と僅差の単語（かんじ→感じ/漢字 など）と、末尾の打ちかけの2文字は、ひらがなのまま残す。
+     */
+    public String liveText(String reading, Bias bias) {
+        List<Candidate> r = run(reading, 1, bias, true);
+        return r.isEmpty() ? reading : r.get(0).text;
+    }
+
+    private List<Candidate> run(String reading, int limit, Bias bias, boolean live) {
         int n = reading.length();
         List<Candidate> result = new ArrayList<>();
         if (n == 0) {
@@ -375,6 +400,8 @@ public final class Converter {
 
         // 1か所だけ別の単語に差し替えた候補
         List<Alt> alts = new ArrayList<>();
+        int[] minDelta = new int[path.size()];
+        Arrays.fill(minDelta, Integer.MAX_VALUE);
         for (int k = 0; k < path.size(); k++) {
             Node cur = path.get(k);
             Node before = k == 0 ? bos : path.get(k - 1);
@@ -390,9 +417,26 @@ public final class Converter {
                 if (delta > ALT_MAX_DELTA || isNoiseAlt(cur, alt)) {
                     continue;
                 }
+                if (delta < minDelta[k] && !isAllKana(alt.surface)) {
+                    minDelta[k] = delta;
+                }
                 String text = head + alt.surface + tail;
                 alts.add(new Alt(delta, new Candidate(text, cur.start, cur.end, alt.surface)));
             }
+        }
+        if (live) {
+            StringBuilder sb = new StringBuilder();
+            for (int k = 0; k < path.size(); k++) {
+                Node nd = path.get(k);
+                String rd = reading.substring(nd.start, nd.end);
+                boolean confident = minDelta[k] >= LIVE_CONFIDENT_DELTA;
+                boolean tailHold = nd.end > n - LIVE_HOLD; // 末尾の打ちかけの部分は、まだ変換しない
+                sb.append(isAllKana(nd.surface) || (confident && !tailHold) ? nd.surface : rd);
+            }
+            out.clear();
+            out.put(sb.toString(), new Candidate(sb.toString(), -1, -1, null));
+            result.addAll(out.values());
+            return result;
         }
         Collections.sort(alts);
         for (Alt a : alts) {

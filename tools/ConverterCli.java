@@ -45,6 +45,14 @@ public class ConverterCli {
             out.printf("%s -> %s  (%.2f ms)%n", line.trim(), texts(r), ms);
         }
 
+        out.println("--- 自動変換（打ち進めたときの表示）");
+        for (String full : new String[] {"きょうはいいてんきですね", "きのうはあめがふっていました", "かんじをへんかんする", "ありがとうございます", "あしたがっこうにいきます", "わたしはがくせいです", "いねのかいかとじゅふんのあんていせい"}) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 1; i <= full.length(); i++) {
+                sb.append(c.liveText(full.substring(0, i), null)).append(" | ");
+            }
+            out.println(sb);
+        }
         out.println("--- 予測変換");
         for (String pre : new String[] {"あ", "き", "に", "か", "あり", "ありが", "おね", "こん", "しゅ", "い", "ぱ"}) {
             StringBuilder sb = new StringBuilder();

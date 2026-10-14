@@ -80,6 +80,17 @@ class Dictionary(context: Context) {
         return if (filtered.isEmpty()) listOf(Cand(reading, null, null)) else filtered
     }
 
+    /** 自動変換で入力中に表示する文字列。確信のある部分だけ変換し、打ちかけの末尾はひらがなのまま残す。 */
+    fun liveText(reading: String): String {
+        if (reading.isEmpty()) return reading
+        val conv = converter ?: return reading
+        return try {
+            conv.liveText(reading, bias)
+        } catch (_: Throwable) {
+            reading
+        }
+    }
+
     /** 候補を今後出さないようにする。 */
     fun hide(reading: String, cand: Cand) {
         hidden.hide(cand.keyReading(reading), cand.keySurface())

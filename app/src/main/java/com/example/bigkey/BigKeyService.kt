@@ -50,6 +50,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
 
     private var candidates: List<Dictionary.Cand> = emptyList()
     private var candidateReading = ""
+    private var liveShown = "" // 自動変換で入力中の文字列として表示している内容（かな部分のみ）
     private var liveActive = false // 自動変換で、候補の先頭を入力中の文字列として表示している
     private var candIndex = -1 // -1: 変換前、0以上: 変換中（選択中の候補）
 
@@ -101,7 +102,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         }
         bwButton = TextView(this).apply {
             text = "Bitwarden"
-            textSize = 14f
+            textSize = 13f
             gravity = Gravity.CENTER
             setPadding(dp(14), 0, dp(14), 0)
             val p = Theme.of(this@BigKeyService)
@@ -116,7 +117,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             text = label
             textSize = 14f
             gravity = Gravity.CENTER
-            setPadding(dp(12), 0, dp(12), 0)
+            setPadding(dp(14), 0, dp(14), 0)
             val p = Theme.of(this@BigKeyService)
             setTextColor(p.text)
             background = android.graphics.drawable.GradientDrawable().apply {
@@ -128,32 +129,38 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         editButton = chip("編集") { openPanel(false) }
         val emojiButton = chip("絵文字") { openPanel(true) }
         val voiceButton = chip("音声") { startVoice() }
-        val bar = LinearLayout(this).apply {
+        val toolRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Theme.of(this@BigKeyService).bar)
             for (v in listOf(editButton, emojiButton, voiceButton)) {
                 addView(
                     v,
-                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply {
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)).apply {
                         gravity = Gravity.CENTER_VERTICAL
-                        setMargins(dp(4), 0, 0, 0)
+                        setMargins(dp(6), 0, 0, 0)
                     }
                 )
             }
-            addView(barFrame, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            addView(View(this@BigKeyService), LinearLayout.LayoutParams(0, 1, 1f))
             addView(
                 bwButton,
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply {
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)).apply {
                     gravity = Gravity.CENTER_VERTICAL
-                    setMargins(dp(4), 0, dp(8), 0)
+                    setMargins(0, 0, dp(8), 0)
                 }
             )
+        }
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Theme.of(this@BigKeyService).bar)
+            addView(barFrame, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
         kb = KeyboardView(this).also {
             it.listener = this
             // 日本語入力中だけ、ローマ字として続かないキーを選ばれにくくする
             it.likelyPredicate = { c -> !japanese || composer.canContinue(c) }
         }
+        root.addView(toolRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)))
         root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
         panel = buildPanel()
         val body = FrameLayout(this).apply {
@@ -264,7 +271,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             candidateReading = reading
             candidates = dict.candidates(reading)
             // 自動変換中はすでに先頭の候補が表示されているので、次の候補へ進める
-            candIndex = if (liveActive && candidates.size > 1) 1 else 0
+            candIndex = if (liveActive && candidates.size > 1 && candidates[0].text == liveShown) 1 else 0
         } else {
             candIndex = (candIndex + 1) % candidates.size
         }
@@ -327,6 +334,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         if (Prefs.autoConvert(this) && kana.isNotEmpty()) {
             candidateReading = kana
             candidates = dict.candidates(kana)
+            liveShown = dict.liveText(kana)
             liveActive = candidates.isNotEmpty()
         } else {
             candidateReading = composer.previewReading()
@@ -336,7 +344,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         if (composer.isEmpty()) {
             ic.commitText("", 1)
         } else if (liveActive) {
-            ic.setComposingText(candidates[0].text + trailing, 1)
+            ic.setComposingText(liveShown + trailing, 1)
         } else {
             ic.setComposingText(composer.displayText(), 1)
         }
@@ -351,9 +359,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         } else if (!composer.isEmpty()) {
             val trailing = composer.trailingRomaji()
             if (liveActive) {
-                val cand = candidates[0]
-                ic.commitText(cand.text + trailing, 1)
-                if (!noLearn) dict.learn(candidateReading, cand)
+                ic.commitText(liveShown + trailing, 1)
             } else {
                 composer.flushPending()
                 ic.commitText(composer.kanaText(), 1)
@@ -417,7 +423,8 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
                         val ic = currentInputConnection
                         if (ic != null && liveActive) {
                             candidates = dict.candidates(candidateReading)
-                            ic.setComposingText(candidates[0].text + composer.trailingRomaji(), 1)
+                            liveShown = dict.liveText(candidateReading)
+                            ic.setComposingText(liveShown + composer.trailingRomaji(), 1)
                         } else {
                             candidates = dict.candidates(candidateReading)
                         }

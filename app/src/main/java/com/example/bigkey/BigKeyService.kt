@@ -32,8 +32,8 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private lateinit var candRow: LinearLayout
     private lateinit var autoScroll: HorizontalScrollView
     private lateinit var autoRow: LinearLayout
-    private lateinit var bwButton: TextView
-    private lateinit var editButton: TextView
+    private lateinit var bwButton: View
+    private lateinit var editButton: View
     private lateinit var panel: LinearLayout
     private lateinit var editView: LinearLayout
     private lateinit var emojiView: LinearLayout
@@ -100,42 +100,17 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             addView(candScroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             addView(autoScroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
-        bwButton = TextView(this).apply {
-            text = "Bitwarden"
-            textSize = 13f
-            gravity = Gravity.CENTER
-            setPadding(dp(14), 0, dp(14), 0)
-            val p = Theme.of(this@BigKeyService)
-            setTextColor(p.accentText)
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(p.accent)
-                cornerRadius = dp(18).toFloat()
-            }
-            setOnClickListener { launchBitwarden() }
-        }
-        fun chip(label: String, onClick: () -> Unit) = TextView(this).apply {
-            text = label
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setPadding(dp(14), 0, dp(14), 0)
-            val p = Theme.of(this@BigKeyService)
-            setTextColor(p.text)
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(p.special)
-                cornerRadius = dp(18).toFloat()
-            }
-            setOnClickListener { onClick() }
-        }
-        editButton = chip("編集") { openPanel(false) }
-        val emojiButton = chip("絵文字") { openPanel(true) }
-        val voiceButton = chip("音声") { startVoice() }
+        bwButton = IconButton(this, IconButton.Icon.KEY, "Bitwarden").apply { setOnClickListener { launchBitwarden() } }
+        editButton = IconButton(this, IconButton.Icon.EDIT, "編集").apply { setOnClickListener { openPanel(false) } }
+        val emojiButton = IconButton(this, IconButton.Icon.EMOJI, "絵文字").apply { setOnClickListener { openPanel(true) } }
+        val voiceButton = IconButton(this, IconButton.Icon.MIC, "音声入力").apply { setOnClickListener { startVoice() } }
         val toolRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Theme.of(this@BigKeyService).bar)
             for (v in listOf(editButton, emojiButton, voiceButton)) {
                 addView(
                     v,
-                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)).apply {
+                    LinearLayout.LayoutParams(dp(52), dp(32)).apply {
                         gravity = Gravity.CENTER_VERTICAL
                         setMargins(dp(6), 0, 0, 0)
                     }
@@ -144,7 +119,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             addView(View(this@BigKeyService), LinearLayout.LayoutParams(0, 1, 1f))
             addView(
                 bwButton,
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)).apply {
+                LinearLayout.LayoutParams(dp(52), dp(32)).apply {
                     gravity = Gravity.CENTER_VERTICAL
                     setMargins(0, 0, dp(8), 0)
                 }

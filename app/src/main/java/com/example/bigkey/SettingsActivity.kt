@@ -114,6 +114,63 @@ class SettingsActivity : ComponentActivity() {
         root.addView(button("ファイルに書き出す") { exportLauncher.launch("bigkey-backup.json") })
         root.addView(button("ファイルから復元する") { importLauncher.launch(arrayOf("*/*")) })
 
+        root.addView(heading("定型文"))
+        val snippetBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(snippetBox)
+        fun refreshSnippets() {
+            snippetBox.removeAllViews()
+            val store = ClipStore.instance(this)
+            for (text in store.pinnedList()) {
+                snippetBox.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    addView(
+                        TextView(this@SettingsActivity).apply {
+                            this.text = text
+                            textSize = 15f
+                            maxLines = 2
+                            ellipsize = android.text.TextUtils.TruncateAt.END
+                        },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    )
+                    addView(Button(this@SettingsActivity).apply {
+                        this.text = "削除"
+                        setOnClickListener {
+                            store.removePinned(text)
+                            refreshSnippets()
+                        }
+                    })
+                })
+            }
+            if (store.pinnedList().isEmpty()) {
+                snippetBox.addView(TextView(this).apply {
+                    text = "まだ登録がありません"
+                    textSize = 13f
+                })
+            }
+        }
+        refreshSnippets()
+        root.addView(button("定型文を追加する") {
+            val input = EditText(this).apply {
+                hint = "例: お世話になっております。"
+                minLines = 2
+                gravity = android.view.Gravity.TOP
+            }
+            android.app.AlertDialog.Builder(this)
+                .setTitle("定型文を追加")
+                .setView(input)
+                .setPositiveButton("追加") { _, _ ->
+                    ClipStore.instance(this).addPinned(input.text.toString())
+                    refreshSnippets()
+                }
+                .setNegativeButton("やめる", null)
+                .show()
+        })
+        root.addView(TextView(this).apply {
+            text = "キーボードの「編集」を開くと、定型文が一番上に並びます。タップするとその位置に入力されます。"
+            textSize = 13f
+        })
+
         root.addView(heading("候補の整理"))
         root.addView(TextView(this).apply {
             text = "候補バーの候補を長押しすると、その候補を今後出さないようにできます。"

@@ -35,6 +35,8 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private lateinit var bwButton: TextView
     private lateinit var editButton: TextView
     private lateinit var panel: LinearLayout
+    private lateinit var editView: LinearLayout
+    private lateinit var emojiView: LinearLayout
     private lateinit var clipList: LinearLayout
     private lateinit var clipStore: ClipStore
     private var clipboard: ClipboardManager? = null
@@ -110,29 +112,34 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             }
             setOnClickListener { launchBitwarden() }
         }
-        editButton = TextView(this).apply {
-            text = "編集"
+        fun chip(label: String, onClick: () -> Unit) = TextView(this).apply {
+            text = label
             textSize = 14f
             gravity = Gravity.CENTER
-            setPadding(dp(14), 0, dp(14), 0)
+            setPadding(dp(12), 0, dp(12), 0)
             val p = Theme.of(this@BigKeyService)
             setTextColor(p.text)
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(p.special)
                 cornerRadius = dp(18).toFloat()
             }
-            setOnClickListener { togglePanel() }
+            setOnClickListener { onClick() }
         }
+        editButton = chip("編集") { openPanel(false) }
+        val emojiButton = chip("絵文字") { openPanel(true) }
+        val voiceButton = chip("音声") { startVoice() }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Theme.of(this@BigKeyService).bar)
-            addView(
-                editButton,
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply {
-                    gravity = Gravity.CENTER_VERTICAL
-                    setMargins(dp(8), 0, dp(4), 0)
-                }
-            )
+            for (v in listOf(editButton, emojiButton, voiceButton)) {
+                addView(
+                    v,
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply {
+                        gravity = Gravity.CENTER_VERTICAL
+                        setMargins(dp(4), 0, 0, 0)
+                    }
+                )
+            }
             addView(barFrame, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
             addView(
                 bwButton,
@@ -164,6 +171,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         super.onStartInputView(info, restarting)
         clearState()
         if (::panel.isInitialized) closePanel()
+        VoiceBridge.consume()?.let { currentInputConnection?.commitText(it, 1) }
 
         val cls = info.inputType and InputType.TYPE_MASK_CLASS
         val variation = info.inputType and InputType.TYPE_MASK_VARIATION
@@ -493,23 +501,152 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         }
         clipList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { addView(clipList) }
+        editView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(tools, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+        emojiView = buildEmojiView(pal)
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(pal.bg)
             visibility = View.GONE
-            addView(tools, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-            addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(editView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(emojiView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
     }
 
-    private fun togglePanel() {
-        if (panel.visibility == View.VISIBLE) {
+    // ---- 絵文字 ----
+
+    private val emojiCategories: List<Pair<String, String>> = listOf(
+        "顔" to "😀😃😄😁😆😅😂🤣😊😇🙂😉😍🥰😘😋😛😜🤪🤔🤨😐😑😶🙄😏😣😥😮😪😴😌😎🤓😕😟🙁😲😳🥺😢😭😱😖😞😓😩😫😤😡😠🥵🥶😷🤒🤕🤢🤮🥳🤩🫡🫠",
+        "手" to "👍👎👌✌️🤞🤟🤘👈👉👆👇☝️✋🖐️👋🤙💪🙏🤝👏🙌👐🤲✍️💅🙋🙇🤦🤷",
+        "ハート" to "❤️🧡💛💚💙💜🖤🤍🤎💔❣️💕💞💓💗💖💘💝✨⭐🌟💫🔥💯💢💥💦💤🎉🎊🎁🏆",
+        "動物" to "🐶🐱🐭🐹🐰🦊🐻🐼🐨🐯🦁🐮🐷🐸🐵🐔🐧🐦🐤🦆🦉🐴🦄🐝🐛🦋🐌🐞🐢🐍🐙🐠🐟🐬🐳🐋",
+        "植物" to "🌱🌿☘️🍀🌾🌻🌼🌷🌹🌸🌺🍁🍂🍃🌲🌳🌴🌵🍄🌍☀️🌤️⛅☁️🌧️⛈️❄️🌈🌙",
+        "食べ物" to "🍚🍙🍘🍜🍣🍱🍛🍞🥐🍳🥓🍔🍟🍕🌭🍝🍰🎂🍩🍪🍫🍬🍎🍊🍋🍌🍉🍇🍓🍑🥕🌽🍺🍶☕🍵🥤",
+        "乗り物" to "🚗🚕🚌🚎🚓🚑🚒🚲🛵🏍️🚃🚄🚅✈️🚀🚢⛵🏠🏢🏫🏥🏪⛩️🗼🗻",
+        "記号" to "✅❌⭕❗❓⚠️🚫💡🔔📌📎✏️📝📅📞📱💻🖥️📷🔍🔒🔑📧📦💴💰⏰⌛➡️⬅️⬆️⬇️🔁",
+    )
+    private var emojiGrid: LinearLayout? = null
+
+    private fun codePoints(s: String): List<String> {
+        // 絵文字は結合文字（異体字選択子など）を含むため、基底の文字ごとにまとめる
+        val out = ArrayList<String>()
+        var i = 0
+        while (i < s.length) {
+            val cp = s.codePointAt(i)
+            var j = i + Character.charCount(cp)
+            while (j < s.length) {
+                val n = s.codePointAt(j)
+                if (n == 0xFE0F || n == 0x200D || n in 0x1F3FB..0x1F3FF) {
+                    j += Character.charCount(n)
+                    if (n == 0x200D && j < s.length) j += Character.charCount(s.codePointAt(j))
+                } else break
+            }
+            out.add(s.substring(i, j))
+            i = j
+        }
+        return out
+    }
+
+    private fun buildEmojiView(pal: Palette): LinearLayout {
+        fun tab(label: String, action: () -> Unit) = TextView(this).apply {
+            text = label
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(pal.text)
+            setPadding(dp(14), 0, dp(14), 0)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(pal.special)
+                cornerRadius = dp(12).toFloat()
+            }
+            setOnClickListener { action() }
+        }
+        val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        tabs.addView(
+            tab("閉じる") { closePanel() },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { setMargins(dp(4), dp(4), dp(3), dp(4)) }
+        )
+        tabs.addView(
+            tab("削除") { onBackspace() },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { setMargins(dp(3), dp(4), dp(8), dp(4)) }
+        )
+        val catRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for ((name, chars) in emojiCategories) {
+            catRow.addView(
+                tab(name) { showEmoji(chars, pal) },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { setMargins(dp(3), dp(4), dp(3), dp(4)) }
+            )
+        }
+        tabs.addView(
+            HorizontalScrollView(this).apply {
+                isHorizontalScrollBarEnabled = false
+                addView(catRow)
+            },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        emojiGrid = grid
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            addView(tabs, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(ScrollView(context).apply { addView(grid) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+    }
+
+    private fun showEmoji(chars: String, pal: Palette) {
+        val grid = emojiGrid ?: return
+        grid.removeAllViews()
+        val columns = 8
+        val items = codePoints(chars)
+        var row: LinearLayout? = null
+        for ((i, e) in items.withIndex()) {
+            if (i % columns == 0) {
+                row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                grid.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
+            }
+            row?.addView(
+                TextView(this).apply {
+                    text = e
+                    textSize = 24f
+                    gravity = Gravity.CENTER
+                    setOnClickListener { currentInputConnection?.commitText(e, 1) }
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            )
+        }
+    }
+
+    // ---- 音声入力 ----
+
+    private fun startVoice() {
+        currentInputConnection?.let { if (japanese) commitAsIs(it) }
+        val i = Intent(this, VoiceActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            startActivity(i)
+        } catch (_: Exception) {
+            android.widget.Toast.makeText(this, "音声入力を開始できませんでした", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openPanel(emoji: Boolean) {
+        if (panel.visibility == View.VISIBLE && (emojiView.visibility == View.VISIBLE) == emoji) {
             closePanel()
             return
         }
         currentInputConnection?.let { if (japanese) commitAsIs(it) }
-        recordClip() // 起動前にコピーしたものも拾う
-        refreshClipList()
+        if (emoji) {
+            editView.visibility = View.GONE
+            emojiView.visibility = View.VISIBLE
+            if (emojiGrid?.childCount == 0) showEmoji(emojiCategories[0].second, Theme.of(this))
+        } else {
+            emojiView.visibility = View.GONE
+            editView.visibility = View.VISIBLE
+            recordClip() // 起動前にコピーしたものも拾う
+            refreshClipList()
+        }
         panel.visibility = View.VISIBLE
         kb.visibility = View.INVISIBLE
     }
@@ -534,14 +671,28 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         val hist = clipStore.historyList()
         if (pinned.isEmpty() && hist.isEmpty()) {
             clipList.addView(TextView(this).apply {
-                text = if (Prefs.clipRecord(this@BigKeyService)) "コピーした文がここに並びます" else "履歴の記録は設定でオフになっています"
+                text = if (Prefs.clipRecord(this@BigKeyService)) "コピーした文がここに並びます。定型文は設定画面からも登録できます" else "履歴の記録は設定でオフになっています"
                 setTextColor(pal.hint)
                 textSize = 14f
                 setPadding(dp(16), dp(16), dp(16), dp(16))
             })
             return
         }
-        for (s in pinned + hist) addClipRow(s, clipStore.isPinned(s), pal)
+        if (pinned.isNotEmpty()) {
+            clipList.addView(sectionLabel("定型文", pal))
+            for (s in pinned) addClipRow(s, true, pal)
+        }
+        if (hist.isNotEmpty()) {
+            clipList.addView(sectionLabel("履歴", pal))
+            for (s in hist) addClipRow(s, false, pal)
+        }
+    }
+
+    private fun sectionLabel(label: String, pal: Palette) = TextView(this).apply {
+        text = label
+        textSize = 12f
+        setTextColor(pal.hint)
+        setPadding(dp(14), dp(8), dp(14), dp(2))
     }
 
     private fun addClipRow(text: String, pinned: Boolean, pal: Palette) {
@@ -570,7 +721,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         )
         row.addView(
             TextView(this).apply {
-                this.text = if (pinned) "固定中" else "固定"
+                this.text = if (pinned) "登録済み" else "定型文に登録"
                 textSize = 13f
                 gravity = Gravity.CENTER
                 setTextColor(if (pinned) pal.accentText else pal.hint)

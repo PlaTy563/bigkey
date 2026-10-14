@@ -55,6 +55,19 @@ class ClipStore private constructor(private val file: File) {
     }
 
     @Synchronized
+    fun addPinned(text: String) {
+        if (text.isBlank() || text.length > MAX_LENGTH) return
+        pinned.remove(text)
+        pinned.add(0, text)
+        save()
+    }
+
+    @Synchronized
+    fun removePinned(text: String) {
+        if (pinned.remove(text)) save()
+    }
+
+    @Synchronized
     fun clearHistory() {
         history.clear()
     }

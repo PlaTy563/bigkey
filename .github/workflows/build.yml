@@ -46,7 +46,15 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: gradle assembleDebug assembleRelease --stacktrace
+        run: |
+          set -o pipefail
+          gradle assembleDebug assembleRelease --stacktrace 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      # ログを外から読めない環境向け: 失敗時にコンパイルエラーを注釈として残す
+      - name: Show compile errors as annotations
+        if: failure()
+        run: |
+          grep -E "^e: |error:|What went wrong" -A2 "$RUNNER_TEMP/build.log" | head -60 | while IFS= read -r l; do echo "::error::${l//%/%25}"; done
 
       # artifactストレージ枠を使い切らないよう、保持期間は3日にする
       - uses: actions/upload-artifact@v4

@@ -167,7 +167,7 @@ class SettingsActivity : ComponentActivity() {
                 .show()
         })
         root.addView(TextView(this).apply {
-            text = "キーボードの「編集」を開くと、定型文が一番上に並びます。タップするとその位置に入力されます。"
+            text = "キーボード上の段のクリップボードのアイコンを押すと、定型文が一番上に並びます。タップするとその位置に入力されます。"
             textSize = 13f
         })
 

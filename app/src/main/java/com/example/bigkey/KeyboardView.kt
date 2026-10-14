@@ -45,6 +45,21 @@ class KeyboardView(context: Context) : View(context) {
 
     var listener: Listener? = null
 
+    /** 押しているキーの拡大表示を出す／消す。(表示する文字, キーの左・上・右・下。消すときは null) */
+    var previewCallback: ((String?, Float, Float, Float, Float) -> Unit)? = null
+
+    // タップ位置のずれの学習（キーの大きさに対する割合）
+    private var tapLearn = true
+    private var tapDx = 0f
+    private var tapDy = 0f
+    private var refW = 1f
+    private var refH = 1f
+    private var pendDx = 0f
+    private var pendDy = 0f
+    private var pendTime = 0L
+    private var hasPend = false
+    private var acceptedTaps = 0
+
     /** 文字キー c が「次に打つ文字として自然か」を返す。null なら補正しない。 */
     var likelyPredicate: ((Char) -> Boolean)? = null
 
@@ -96,6 +111,9 @@ class KeyboardView(context: Context) : View(context) {
         showNumberRow = Prefs.showNumberRow(context)
         hitCorrection = Prefs.hitCorrection(context)
         haptic = Prefs.haptic(context)
+        tapLearn = Prefs.tapLearn(context)
+        tapDx = Prefs.tapDx(context)
+        tapDy = Prefs.tapDy(context)
         rebuild()
     }
 
@@ -142,12 +160,14 @@ class KeyboardView(context: Context) : View(context) {
                 listOf(Key(Kind.BACKSPACE, "⌫", weight = 1.5f))
         } else {
             if (showNumberRow) res += digits("1234567890")
+            val h2 = if (japanese) "@#$%&…〜「」" else "@#$%&-+()"
+            val h3 = if (japanese) "・（）『』！？" else "*\"':;!?"
             res += letters("qwertyuiop", if (showNumberRow) "" else "1234567890")
             res += listOf(Key(Kind.SPACER, "", weight = 0.5f)) +
-                letters("asdfghjkl", "@#$%&-+()") +
+                letters("asdfghjkl", h2) +
                 listOf(Key(Kind.SPACER, "", weight = 0.5f))
             res += listOf(Key(Kind.SHIFT, "⇧", weight = 1.5f)) +
-                letters("zxcvbnm", "*\"':;!?") +
+                letters("zxcvbnm", h3) +
                 listOf(Key(Kind.BACKSPACE, "⌫", weight = 1.5f))
         }
 
@@ -184,6 +204,10 @@ class KeyboardView(context: Context) : View(context) {
             for (k in row) {
                 val w = width * k.weight / sum
                 k.rect.set(x, top, x + w, top + rowH)
+                if (k.kind == Kind.LETTER) {
+                    refW = w
+                    refH = rowH
+                }
                 x += w
             }
             top += rowH
@@ -339,11 +363,14 @@ class KeyboardView(context: Context) : View(context) {
         var best: Key? = null
         var bestScore = Float.MAX_VALUE
         val predicate = if (hitCorrection) likelyPredicate else null
+        // 利用者がいつもずれて触れる分だけ、触れた位置を戻して判定する
+        val ax = if (tapLearn) x - tapDx * refW else x
+        val ay = if (tapLearn) y - tapDy * refH else y
         for (row in rows) {
             for (k in row) {
                 if (k.kind == Kind.SPACER) continue
-                val dx = (x - k.rect.centerX()) / k.rect.width()
-                val dy = (y - k.rect.centerY()) / k.rect.height()
+                val dx = (ax - k.rect.centerX()) / k.rect.width()
+                val dy = (ay - k.rect.centerY()) / k.rect.height()
                 var score = dx * dx + dy * dy
                 if (predicate != null && k.kind == Kind.LETTER && !predicate(k.text[0])) {
                     score *= UNLIKELY_PENALTY
@@ -379,8 +406,10 @@ class KeyboardView(context: Context) : View(context) {
         val k = hit(x, y) ?: return
         pressed[id] = k
         if (haptic) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        showPreview(k)
         if (k.kind == Kind.BACKSPACE) {
             // 削除は押した瞬間に実行し、押し続けると連続削除する
+            hasPend = false // 直前の入力は間違いだったので、位置の学習には使わない
             listener?.onBackspace()
             repeatPointer = id
             handler.postDelayed(repeatRunnable, 400)
@@ -428,12 +457,14 @@ class KeyboardView(context: Context) : View(context) {
         if (next !== cur && id !in longFired) {
             cancelLongPress(id)
             pressed[id] = next
+            showPreview(next)
             invalidate()
         }
     }
 
     private fun onUp(id: Int, x: Float, y: Float) {
         val cur = pressed.remove(id)
+        previewCallback?.invoke(null, 0f, 0f, 0f, 0f)
         cancelLongPress(id)
         spaceLastX.remove(id)
         spaceAcc.remove(id)
@@ -451,12 +482,42 @@ class KeyboardView(context: Context) : View(context) {
             return
         }
         if (cur != null) {
-            fire(hit(x, y) ?: cur)
+            val target = hit(x, y) ?: cur
+            if (target.kind == Kind.LETTER) noteTap(target, x, y)
+            fire(target)
         }
         invalidate()
     }
 
+    private fun showPreview(k: Key) {
+        val cb = previewCallback ?: return
+        if (k.kind == Kind.LETTER || k.kind == Kind.DIGIT || k.kind == Kind.SYMBOL) {
+            cb(labelOf(k), k.rect.left, k.rect.top, k.rect.right, k.rect.bottom)
+        } else {
+            cb(null, 0f, 0f, 0f, 0f)
+        }
+    }
+
+    /** 文字キーを押した位置を覚える。直前の入力がすぐ消されていなければ、その位置を「いつもの触れ方」として学習する。 */
+    private fun noteTap(k: Key, x: Float, y: Float) {
+        if (!tapLearn) return
+        val now = android.os.SystemClock.uptimeMillis()
+        if (hasPend && now - pendTime < 1500L) {
+            tapDx = (tapDx + (pendDx - tapDx) * 0.03f).coerceIn(-0.2f, 0.2f)
+            tapDy = (tapDy + (pendDy - tapDy) * 0.03f).coerceIn(-0.2f, 0.2f)
+            acceptedTaps++
+            if (acceptedTaps % 40 == 0) {
+                Prefs.get(context).edit().putFloat(Prefs.TAP_DX, tapDx).putFloat(Prefs.TAP_DY, tapDy).apply()
+            }
+        }
+        pendDx = (x - k.rect.centerX()) / k.rect.width()
+        pendDy = (y - k.rect.centerY()) / k.rect.height()
+        pendTime = now
+        hasPend = true
+    }
+
     private fun cancelAll() {
+        previewCallback?.invoke(null, 0f, 0f, 0f, 0f)
         for (id in longPress.keys.toList()) cancelLongPress(id)
         longFired.clear()
         spaceLastX.clear()

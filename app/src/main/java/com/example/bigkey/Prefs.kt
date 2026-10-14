@@ -11,6 +11,9 @@ object Prefs {
     const val AUTO_CONVERT = "auto_convert"
     const val SHOW_BITWARDEN = "show_bitwarden"
     const val CLIP_RECORD = "clip_record"
+    const val TAP_LEARN = "tap_learn"
+    const val TAP_DX = "tap_dx"
+    const val TAP_DY = "tap_dy"
 
     const val DEFAULT_HEIGHT = 64
     const val MIN_HEIGHT = 44
@@ -33,4 +36,10 @@ object Prefs {
     fun showBitwarden(ctx: Context): Boolean = get(ctx).getBoolean(SHOW_BITWARDEN, true)
 
     fun clipRecord(ctx: Context): Boolean = get(ctx).getBoolean(CLIP_RECORD, true)
+
+    fun tapLearn(ctx: Context): Boolean = get(ctx).getBoolean(TAP_LEARN, true)
+
+    fun tapDx(ctx: Context): Float = get(ctx).getFloat(TAP_DX, 0f)
+
+    fun tapDy(ctx: Context): Float = get(ctx).getFloat(TAP_DY, 0f)
 }

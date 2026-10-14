@@ -25,6 +25,14 @@ class LearnStore private constructor(private val file: File) {
     @Synchronized
     fun count(reading: String, cand: String): Int = counts["$reading|$cand"] ?: 0
 
+    /** キーが prefix で始まるものを、回数の多い順に返す。(prefix の後ろの部分, 回数) */
+    @Synchronized
+    fun top(prefix: String, limit: Int): List<Pair<String, Int>> =
+        counts.entries.filter { it.key.startsWith(prefix) }
+            .sortedByDescending { it.value }
+            .take(limit)
+            .map { it.key.substring(prefix.length) to it.value }
+
     @Synchronized
     fun record(reading: String, cand: String) {
         val k = "$reading|$cand"

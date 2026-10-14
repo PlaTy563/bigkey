@@ -29,6 +29,37 @@ class SettingsActivity : ComponentActivity() {
             if (uri != null) doImport(uri)
         }
 
+    private var refreshUserDict: (() -> Unit)? = null
+
+    private val dictImportLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) {
+                try {
+                    val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("ファイルを開けません")
+                    val pairs = DictFile.parse(DictFile.decode(bytes))
+                    val n = UserDict.instance(this).addAll(pairs)
+                    toast("${n}件を追加しました（読み込んだ行: ${pairs.size}）")
+                    refreshUserDict?.invoke()
+                } catch (e: Exception) {
+                    toast("読み込みに失敗しました: ${e.message}")
+                }
+            }
+        }
+
+    private val dictExportLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+            if (uri != null) {
+                try {
+                    val text = DictFile.format(UserDict.instance(this).all())
+                    contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                        ?: error("書き込み先を開けません")
+                    toast("書き出しました")
+                } catch (e: Exception) {
+                    toast("書き出しに失敗しました: ${e.message}")
+                }
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sp = Prefs.get(this)
@@ -169,6 +200,72 @@ class SettingsActivity : ComponentActivity() {
         root.addView(TextView(this).apply {
             text = "キーボード上の段のクリップボードのアイコンを押すと、定型文が一番上に並びます。タップするとその位置に入力されます。"
             textSize = 13f
+        })
+
+        root.addView(heading("ユーザー辞書"))
+        val dictBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(dictBox)
+        fun refreshDict() {
+            dictBox.removeAllViews()
+            val ud = UserDict.instance(this)
+            val all = ud.all()
+            dictBox.addView(TextView(this).apply {
+                text = if (all.isEmpty()) "まだ登録がありません" else "登録数: ${all.size}件（先頭100件を表示）"
+                textSize = 13f
+            })
+            for ((reading, surface) in all.take(100)) {
+                dictBox.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    addView(
+                        TextView(this@SettingsActivity).apply {
+                            text = "$reading → $surface"
+                            textSize = 15f
+                            maxLines = 1
+                            ellipsize = android.text.TextUtils.TruncateAt.END
+                        },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    )
+                    addView(Button(this@SettingsActivity).apply {
+                        text = "削除"
+                        setOnClickListener {
+                            ud.remove(reading, surface)
+                            refreshDict()
+                        }
+                    })
+                })
+            }
+        }
+        refreshUserDict = ::refreshDict
+        refreshDict()
+        root.addView(button("単語を追加する") {
+            val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            val r = EditText(this).apply { hint = "読み（ひらがな）例: やまだ" }
+            val w = EditText(this).apply { hint = "表記 例: 山田" }
+            box.addView(r)
+            box.addView(w)
+            android.app.AlertDialog.Builder(this)
+                .setTitle("単語を追加")
+                .setView(box)
+                .setPositiveButton("追加") { _, _ ->
+                    if (UserDict.instance(this).add(r.text.toString(), w.text.toString())) refreshDict()
+                    else toast("追加できませんでした。読みはひらがなで入力してください")
+                }
+                .setNegativeButton("やめる", null)
+                .show()
+        })
+        root.addView(button("ファイルから読み込む") { dictImportLauncher.launch(arrayOf("*/*")) })
+        root.addView(button("ファイルに書き出す") { dictExportLauncher.launch("bigkey-userdict.txt") })
+        root.addView(TextView(this).apply {
+            text = "読み込める形式: 「読み」と「表記」を、タブまたはカンマで区切った1行1語のテキスト（Google日本語入力・Mozc・MS-IMEの辞書書き出し、CSVなど）。文字コードは自動判定します。"
+            textSize = 13f
+        })
+
+        root.addView(heading("タップ位置の学習"))
+        root.addView(switchRow("タップのずれを学習して、押したつもりのキーに当たりやすくする", Prefs.TAP_LEARN, true))
+        root.addView(button("学習したずれをリセットする") {
+            sp.edit().putFloat(Prefs.TAP_DX, 0f).putFloat(Prefs.TAP_DY, 0f).apply()
+            toast("リセットしました")
         })
 
         root.addView(heading("候補の整理"))

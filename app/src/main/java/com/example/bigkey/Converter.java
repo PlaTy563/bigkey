@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -41,6 +42,11 @@ public final class Converter {
     /** 利用者が過去に選んだ回数。(読み, 表記) の組ごとに返す。 */
     public interface Bias {
         int count(String reading, String surface);
+
+        /** 利用者が過去に「前の語 → この語」の並びで選んだ回数。 */
+        default int pair(String prevSurface, String surface) {
+            return 0;
+        }
     }
 
     /** 変換候補。単語を差し替えた候補では、差し替えた範囲と表記を持つ（学習に使う）。 */
@@ -50,6 +56,8 @@ public final class Converter {
         public final int segEnd;
         public final String segSurface;
         public String predictReading; // 予測変換の候補では、その候補の読み全体。それ以外は null
+        public String[] surfaces; // 変換結果を単語に区切った表記（学習用）。予測変換では null
+        public String[] readings; // 上の各単語の読み
 
         Candidate(String text, int segStart, int segEnd, String segSurface) {
             this.text = text;
@@ -62,6 +70,8 @@ public final class Converter {
     private static final int ALT_MAX_DELTA = 3500;
     private static final int LIVE_CONFIDENT_DELTA = 1000;
     private static final int LIVE_HOLD = 2;
+    private static final int PAIR_BONUS = 1500;
+    private static final int USER_WORD_COST = 1500;
     private static final int PREDICT_LEN_PENALTY = 350;
     private static final int PREDICT_SCAN_MAX = 60000;
 
@@ -105,6 +115,19 @@ public final class Converter {
         public int compareTo(Alt o) {
             return Integer.compare(delta, o.delta);
         }
+    }
+
+    private volatile Map<String, List<String>> userWords = new HashMap<>();
+    private volatile int userMaxLen = 0;
+
+    /** 利用者が登録した単語（読み → 表記の一覧）を、変換に加える。 */
+    public void setUserWords(Map<String, List<String>> words) {
+        int max = 0;
+        for (String k : words.keySet()) {
+            max = Math.max(max, k.length());
+        }
+        this.userWords = words;
+        this.userMaxLen = max;
     }
 
     private byte[] predictable; // 品詞idごとに、予測変換に使ってよいなら1
@@ -231,6 +254,20 @@ public final class Converter {
         }
     }
 
+    private void addUserNodes(String s, int i, List<Node> out) {
+        Map<String, List<String>> words = userWords;
+        int maxLen = Math.min(userMaxLen, s.length() - i);
+        for (int len = 1; len <= maxLen; len++) {
+            List<String> list = words.get(s.substring(i, i + len));
+            if (list == null) {
+                continue;
+            }
+            for (String surface : list) {
+                out.add(new Node(i, i + len, ID_NOUN, ID_NOUN, USER_WORD_COST, surface));
+            }
+        }
+    }
+
     // ---- 辞書にない文字 ----
 
     private static boolean isKana(char c) {
@@ -340,6 +377,7 @@ public final class Converter {
         for (int i = 0; i < n; i++) {
             List<Node> list = new ArrayList<>();
             addDictionaryNodes(reading, i, bias, list);
+            addUserNodes(reading, i, list);
             addUnknownNodes(reading, i, list);
             startsAt[i] = list;
         }
@@ -363,6 +401,9 @@ public final class Converter {
                 Node bestPrev = null;
                 for (Node prev : prevs) {
                     int c = prev.best + connCost(prev.rid, node.lid);
+                    if (bias != null && prev != bos && !prev.surface.isEmpty()) {
+                        c -= Math.min(bias.pair(prev.surface, node.surface), BIAS_MAX_COUNT) * PAIR_BONUS;
+                    }
                     if (c < bestCost) {
                         bestCost = c;
                         bestPrev = prev;
@@ -396,7 +437,14 @@ public final class Converter {
 
         Map<String, Candidate> out = new LinkedHashMap<>();
         String bestText = join(path, 0, path.size());
-        out.put(bestText, new Candidate(bestText, -1, -1, null));
+        Candidate bestCand = new Candidate(bestText, -1, -1, null);
+        bestCand.surfaces = new String[path.size()];
+        bestCand.readings = new String[path.size()];
+        for (int k = 0; k < path.size(); k++) {
+            bestCand.surfaces[k] = path.get(k).surface;
+            bestCand.readings[k] = reading.substring(path.get(k).start, path.get(k).end);
+        }
+        out.put(bestText, bestCand);
 
         // 1か所だけ別の単語に差し替えた候補
         List<Alt> alts = new ArrayList<>();
@@ -421,7 +469,11 @@ public final class Converter {
                     minDelta[k] = delta;
                 }
                 String text = head + alt.surface + tail;
-                alts.add(new Alt(delta, new Candidate(text, cur.start, cur.end, alt.surface)));
+                Candidate altCand = new Candidate(text, cur.start, cur.end, alt.surface);
+                altCand.surfaces = bestCand.surfaces.clone();
+                altCand.surfaces[k] = alt.surface;
+                altCand.readings = bestCand.readings;
+                alts.add(new Alt(delta, altCand));
             }
         }
         if (live) {

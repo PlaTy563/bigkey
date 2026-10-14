@@ -34,6 +34,10 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private lateinit var autoRow: LinearLayout
     private lateinit var bwButton: View
     private lateinit var editButton: View
+    private lateinit var overlay: PreviewOverlay
+    private val candViews = ArrayList<View>()
+    private var lastCommitted = "" // 直前に確定した文字列（次の語の予測に使う）
+    private var suggestions: List<String> = emptyList()
     private lateinit var panel: LinearLayout
     private lateinit var editView: LinearLayout
     private lateinit var emojiView: LinearLayout
@@ -148,13 +152,31 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             body,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         )
-        return root
+        overlay = PreviewOverlay(this)
+        kb.previewCallback = { label, l, t, r, b ->
+            if (label == null) {
+                overlay.show(null, 0f, 0f, 0f, 0f)
+            } else {
+                val a = IntArray(2)
+                val o = IntArray(2)
+                kb.getLocationInWindow(a)
+                overlay.getLocationInWindow(o)
+                val dx = (a[0] - o[0]).toFloat()
+                val dy = (a[1] - o[1]).toFloat()
+                overlay.show(label, l + dx, t + dy, r + dx, b + dy)
+            }
+        }
+        return FrameLayout(this).apply {
+            addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(overlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
     }
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         clearState()
         if (::panel.isInitialized) closePanel()
+        resetSuggest()
         VoiceBridge.consume()?.let { currentInputConnection?.commitText(it, 1) }
 
         val cls = info.inputType and InputType.TYPE_MASK_CLASS
@@ -207,6 +229,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         if (!japanese) {
             val s = if (key.kind == KeyboardView.Kind.LETTER && shifted) key.text.uppercase() else key.text
             ic.commitText(s, 1)
+            resetSuggest()
             return
         }
 
@@ -224,6 +247,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             syncComposition(ic)
         } else if (composer.isEmpty()) {
             ic.commitText(key.text, 1)
+            resetSuggest()
         } else {
             composer.endAlphaRun()
             composer.appendLiteral(key.text)
@@ -270,6 +294,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
                 return
             }
         }
+        resetSuggest()
         sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
     }
 
@@ -290,6 +315,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         if (!noEnterAction && action != EditorInfo.IME_ACTION_NONE && action != EditorInfo.IME_ACTION_UNSPECIFIED) {
             ic.performEditorAction(action)
         } else {
+            resetSuggest()
             sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
         }
     }
@@ -335,13 +361,17 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             commitCandidateAt(ic, candIndex)
         } else if (!composer.isEmpty()) {
             val trailing = composer.trailingRomaji()
+            val committed: String
             if (liveActive) {
-                ic.commitText(liveShown + trailing, 1)
+                committed = liveShown + trailing
+                ic.commitText(committed, 1)
             } else {
                 composer.flushPending()
-                ic.commitText(composer.kanaText(), 1)
+                committed = composer.kanaText()
+                ic.commitText(committed, 1)
             }
             clearState()
+            afterCommit(committed)
         }
     }
 
@@ -351,7 +381,24 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         val trailing = if (liveActive && candIndex < 0) composer.trailingRomaji() else ""
         ic.commitText(cand.text + trailing, 1)
         if (!noLearn && cand.text != candidateReading) dict.learn(candidateReading, cand)
+        if (cand.isEmoji) addRecentEmoji(cand.text)
         clearState()
+        afterCommit(cand.text + trailing)
+    }
+
+    /** 確定したあとの処理: 次に続きそうな言葉を探し、並びを覚える。 */
+    private fun afterCommit(text: String) {
+        if (!noLearn && lastCommitted.isNotEmpty()) dict.recordNext(lastCommitted, text)
+        lastCommitted = text
+        suggestions = dict.nextSuggestions(text)
+        refreshBar()
+    }
+
+    private fun resetSuggest() {
+        if (lastCommitted.isEmpty() && suggestions.isEmpty()) return
+        lastCommitted = ""
+        suggestions = emptyList()
+        refreshBar()
     }
 
     private fun clearState() {
@@ -367,8 +414,36 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private fun refreshBar() {
         if (!::candRow.isInitialized) return
         candRow.removeAllViews()
+        candViews.clear()
         updateBarVisibility()
         val pal = Theme.of(this)
+        if (candidates.isEmpty() && composer.isEmpty()) {
+            for (sug in suggestions) {
+                val tv = TextView(this).apply {
+                    text = sug
+                    textSize = 18f
+                    gravity = Gravity.CENTER
+                    setPadding(dp(14), 0, dp(14), 0)
+                    setTextColor(pal.text)
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(pal.special)
+                        cornerRadius = dp(18).toFloat()
+                    }
+                    setOnClickListener {
+                        val ic = currentInputConnection ?: return@setOnClickListener
+                        ic.commitText(sug, 1)
+                        afterCommit(sug)
+                    }
+                }
+                candRow.addView(
+                    tv,
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply {
+                        gravity = Gravity.CENTER_VERTICAL
+                        setMargins(dp(4), dp(4), dp(4), dp(4))
+                    }
+                )
+            }
+        }
         candidates.forEachIndexed { i, c ->
             if (i > 0 && i - 1 != candIndex && i != candIndex) {
                 candRow.addView(
@@ -412,6 +487,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
                     true
                 }
             }
+            candViews.add(tv)
             candRow.addView(
                 tv,
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply {
@@ -421,7 +497,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             )
         }
         if (candIndex >= 0) {
-            candScroll.post { candRow.getChildAt(candIndex)?.let { candScroll.smoothScrollTo(it.left, 0) } }
+            candScroll.post { candViews.getOrNull(candIndex)?.let { candScroll.smoothScrollTo(it.left, 0) } }
         } else {
             candScroll.scrollTo(0, 0)
         }
@@ -432,6 +508,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     override fun onCursor(delta: Int) {
         val ic = currentInputConnection ?: return
         if (japanese && (candIndex >= 0 || !composer.isEmpty())) commitAsIs(ic)
+        resetSuggest()
         sendDownUpKeyEvents(if (delta < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT)
     }
 
@@ -512,6 +589,17 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     )
     private var emojiGrid: LinearLayout? = null
 
+    private fun recentEmoji(): String =
+        getSharedPreferences("recent", MODE_PRIVATE).getString("emoji", "") ?: ""
+
+    private fun addRecentEmoji(e: String) {
+        val list = ArrayList<String>()
+        list.add(e)
+        for (x in codePoints(recentEmoji())) if (x != e) list.add(x)
+        val joined = list.take(32).joinToString("")
+        getSharedPreferences("recent", MODE_PRIVATE).edit().putString("emoji", joined).apply()
+    }
+
     private fun codePoints(s: String): List<String> {
         // 絵文字は結合文字（異体字選択子など）を含むため、基底の文字ごとにまとめる
         val out = ArrayList<String>()
@@ -555,6 +643,10 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { setMargins(dp(3), dp(4), dp(8), dp(4)) }
         )
         val catRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        catRow.addView(
+            tab("最近") { showEmoji(recentEmoji(), pal) },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { setMargins(dp(3), dp(4), dp(3), dp(4)) }
+        )
         for ((name, chars) in emojiCategories) {
             catRow.addView(
                 tab(name) { showEmoji(chars, pal) },
@@ -594,7 +686,10 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
                     text = e
                     textSize = 24f
                     gravity = Gravity.CENTER
-                    setOnClickListener { currentInputConnection?.commitText(e, 1) }
+                    setOnClickListener {
+                        currentInputConnection?.commitText(e, 1)
+                        addRecentEmoji(e)
+                    }
                 },
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
             )
@@ -622,7 +717,8 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         if (emoji) {
             editView.visibility = View.GONE
             emojiView.visibility = View.VISIBLE
-            if (emojiGrid?.childCount == 0) showEmoji(emojiCategories[0].second, Theme.of(this))
+            val rec = recentEmoji()
+            showEmoji(if (rec.isNotEmpty()) rec else emojiCategories[0].second, Theme.of(this))
         } else {
             emojiView.visibility = View.GONE
             editView.visibility = View.VISIBLE
@@ -639,6 +735,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     }
 
     private fun moveCursor(d: Int) {
+        resetSuggest()
         sendDownUpKeyEvents(if (d < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT)
     }
 

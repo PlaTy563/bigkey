@@ -17,6 +17,9 @@ object Backup {
             .put(Prefs.AUTO_CONVERT, Prefs.autoConvert(ctx))
             .put(Prefs.SHOW_BITWARDEN, Prefs.showBitwarden(ctx))
             .put(Prefs.CLIP_RECORD, Prefs.clipRecord(ctx))
+            .put(Prefs.TAP_LEARN, Prefs.tapLearn(ctx))
+            .put(Prefs.TAP_DX, Prefs.tapDx(ctx).toDouble())
+            .put(Prefs.TAP_DY, Prefs.tapDy(ctx).toDouble())
         return JSONObject()
             .put("app", APP_ID)
             .put("version", VERSION)
@@ -24,6 +27,7 @@ object Backup {
             .put("learn", LearnStore.instance(ctx).toJson())
             .put("pinned", ClipStore.instance(ctx).toJson())
             .put("hidden", HiddenStore.instance(ctx).toJson())
+            .put("userdict", UserDict.instance(ctx).toJson())
             .toString(2)
     }
 
@@ -47,11 +51,15 @@ object Backup {
             if (s.has(Prefs.AUTO_CONVERT)) e.putBoolean(Prefs.AUTO_CONVERT, s.optBoolean(Prefs.AUTO_CONVERT, true))
             if (s.has(Prefs.SHOW_BITWARDEN)) e.putBoolean(Prefs.SHOW_BITWARDEN, s.optBoolean(Prefs.SHOW_BITWARDEN, true))
             if (s.has(Prefs.CLIP_RECORD)) e.putBoolean(Prefs.CLIP_RECORD, s.optBoolean(Prefs.CLIP_RECORD, true))
+            if (s.has(Prefs.TAP_LEARN)) e.putBoolean(Prefs.TAP_LEARN, s.optBoolean(Prefs.TAP_LEARN, true))
+            if (s.has(Prefs.TAP_DX)) e.putFloat(Prefs.TAP_DX, s.optDouble(Prefs.TAP_DX, 0.0).toFloat())
+            if (s.has(Prefs.TAP_DY)) e.putFloat(Prefs.TAP_DY, s.optDouble(Prefs.TAP_DY, 0.0).toFloat())
             e.apply()
         }
 
         val l = root.optJSONObject("learn")
         if (l != null) LearnStore.instance(ctx).replaceFrom(l)
+        root.optJSONObject("userdict")?.let { UserDict.instance(ctx).replaceFrom(it) }
         root.optJSONArray("hidden")?.let { HiddenStore.instance(ctx).replaceFrom(it) }
         root.optJSONArray("pinned")?.let { ClipStore.instance(ctx).replacePinned(it) }
     }

@@ -101,18 +101,20 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             addView(autoScroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
         bwButton = IconButton(this, IconButton.Icon.KEY, "Bitwarden").apply { setOnClickListener { launchBitwarden() } }
-        editButton = IconButton(this, IconButton.Icon.EDIT, "編集").apply { setOnClickListener { openPanel(false) } }
+        editButton = IconButton(this, IconButton.Icon.CLIP, "クリップボード").apply { setOnClickListener { openPanel(false) } }
+        val leftButton = IconButton(this, IconButton.Icon.LEFT, "カーソルを左へ").apply { repeatAction = { onCursor(-1) } }
+        val rightButton = IconButton(this, IconButton.Icon.RIGHT, "カーソルを右へ").apply { repeatAction = { onCursor(1) } }
         val emojiButton = IconButton(this, IconButton.Icon.EMOJI, "絵文字").apply { setOnClickListener { openPanel(true) } }
         val voiceButton = IconButton(this, IconButton.Icon.MIC, "音声入力").apply { setOnClickListener { startVoice() } }
         val toolRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Theme.of(this@BigKeyService).bar)
-            for (v in listOf(editButton, emojiButton, voiceButton)) {
+            for (v in listOf(leftButton, rightButton, editButton, emojiButton, voiceButton)) {
                 addView(
                     v,
-                    LinearLayout.LayoutParams(dp(52), dp(32)).apply {
+                    LinearLayout.LayoutParams(dp(46), dp(32)).apply {
                         gravity = Gravity.CENTER_VERTICAL
-                        setMargins(dp(6), 0, 0, 0)
+                        setMargins(dp(5), 0, 0, 0)
                     }
                 )
             }
@@ -467,8 +469,6 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             orientation = LinearLayout.HORIZONTAL
             val items = listOf<Pair<String, () -> Unit>>(
                 "閉じる" to { closePanel() },
-                "←" to { moveCursor(-1) },
-                "→" to { moveCursor(1) },
                 "全選択" to { editAction(android.R.id.selectAll) },
                 "コピー" to { editAction(android.R.id.copy) },
                 "切取" to { editAction(android.R.id.cut) },

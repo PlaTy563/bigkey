@@ -9,7 +9,7 @@ import android.view.View
 
 /** 線で描いたアイコンのボタン。画像ファイルを使わず、図形で描く。 */
 class IconButton(context: Context, private val icon: Icon, description: String) : View(context) {
-    enum class Icon { EDIT, EMOJI, MIC, KEY }
+    enum class Icon { LEFT, RIGHT, CLIP, EMOJI, MIC, KEY }
 
     private val pal = Theme.of(context)
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = pal.special }
@@ -40,11 +40,44 @@ class IconButton(context: Context, private val icon: Icon, description: String) 
         val s = minOf(w, h) * 0.26f // アイコンの基準の長さ
         line.strokeWidth = minOf(w, h) * 0.075f
         when (icon) {
-            Icon.EDIT -> drawEdit(canvas, cx, cy, s)
+            Icon.LEFT -> drawChevron(canvas, cx, cy, s, -1)
+            Icon.RIGHT -> drawChevron(canvas, cx, cy, s, 1)
+            Icon.CLIP -> drawClip(canvas, cx, cy, s)
             Icon.EMOJI -> drawEmoji(canvas, cx, cy, s)
             Icon.MIC -> drawMic(canvas, cx, cy, s)
             Icon.KEY -> drawKey(canvas, cx, cy, s)
         }
+    }
+
+    /** 押し続けると繰り返し実行する動作（カーソル移動用）。設定すると、押した瞬間に1回実行する。 */
+    var repeatAction: (() -> Unit)? = null
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val repeater = object : Runnable {
+        override fun run() {
+            repeatAction?.invoke()
+            handler.postDelayed(this, 60)
+        }
+    }
+
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
+        val action = repeatAction ?: return super.onTouchEvent(e)
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                isPressed = true
+                action()
+                handler.postDelayed(repeater, 400)
+            }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                isPressed = false
+                handler.removeCallbacks(repeater)
+            }
+        }
+        return true
+    }
+
+    override fun onDetachedFromWindow() {
+        handler.removeCallbacks(repeater)
+        super.onDetachedFromWindow()
     }
 
     override fun setPressed(pressed: Boolean) {
@@ -52,17 +85,22 @@ class IconButton(context: Context, private val icon: Icon, description: String) 
         alpha = if (pressed) 0.6f else 1f
     }
 
-    private fun drawEdit(c: Canvas, x: Float, y: Float, s: Float) {
-        // えんぴつ
+    private fun drawChevron(c: Canvas, x: Float, y: Float, s: Float, dir: Int) {
         path.reset()
-        path.moveTo(x - s * 1.0f, y + s * 1.0f)
-        path.lineTo(x - s * 0.9f, y + s * 0.35f)
-        path.lineTo(x + s * 0.55f, y - s * 1.1f)
-        path.lineTo(x + s * 1.1f, y - s * 0.55f)
-        path.lineTo(x - s * 0.35f, y + s * 0.9f)
-        path.close()
+        path.moveTo(x - dir * s * 0.45f, y - s * 1.0f)
+        path.lineTo(x + dir * s * 0.55f, y)
+        path.lineTo(x - dir * s * 0.45f, y + s * 1.0f)
         c.drawPath(path, line)
-        c.drawLine(x + s * 0.2f, y - s * 0.75f, x + s * 0.8f, y - s * 0.15f, line)
+    }
+
+    private fun drawClip(c: Canvas, x: Float, y: Float, s: Float) {
+        // クリップボード: 板と、上のクリップ、中の行
+        rect.set(x - s * 0.95f, y - s * 1.05f, x + s * 0.95f, y + s * 1.2f)
+        c.drawRoundRect(rect, s * 0.3f, s * 0.3f, line)
+        rect.set(x - s * 0.45f, y - s * 1.4f, x + s * 0.45f, y - s * 0.7f)
+        c.drawRoundRect(rect, s * 0.2f, s * 0.2f, line)
+        c.drawLine(x - s * 0.5f, y - s * 0.05f, x + s * 0.5f, y - s * 0.05f, line)
+        c.drawLine(x - s * 0.5f, y + s * 0.55f, x + s * 0.2f, y + s * 0.55f, line)
     }
 
     private fun drawEmoji(c: Canvas, x: Float, y: Float, s: Float) {

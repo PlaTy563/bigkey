@@ -168,7 +168,14 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         }
         return FrameLayout(this).apply {
             addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-            addView(this@BigKeyService.overlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(this@BigKeyService.overlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            root.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+                val h = bottom - top
+                if (this@BigKeyService.overlay.fixedHeight != h) {
+                    this@BigKeyService.overlay.fixedHeight = h
+                    this@BigKeyService.overlay.requestLayout()
+                }
+            }
         }
     }
 

@@ -23,6 +23,13 @@ class PreviewOverlay(context: Context) : View(context) {
     private var r = 0f
     private var b = 0f
 
+    /** 高さは親(キーボード全体)に合わせる。MATCH_PARENTだと入力欄が画面いっぱいに広がるため、自分では決めない。 */
+    var fixedHeight = 0
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), fixedHeight)
+    }
+
     fun show(label: String?, l: Float, t: Float, r: Float, b: Float) {
         this.label = label
         this.l = l

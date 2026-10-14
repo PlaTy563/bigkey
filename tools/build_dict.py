@@ -53,6 +53,8 @@ def main():
     ap.add_argument("--kata-max-cost", type=int, default=6500, help="カタカナだけの表記に使う上限")
     ap.add_argument("--per-reading", type=int, default=30, help="1つの読みに残す候補の最大数")
     ap.add_argument("--max-reading-len", type=int, default=16)
+    ap.add_argument("--name-max-cost", type=int, default=5000, help="人名(姓・名)に使う上限。人名は大量にあり、変換候補の邪魔になりやすい")
+    ap.add_argument("--proper-max-cost", type=int, default=5800, help="地名・組織名などの固有名詞に使う上限")
     args = ap.parse_args()
 
     best = {}  # (読み, 表記, 左id, 右id) -> 費用の最小値
@@ -72,6 +74,10 @@ def main():
                 if cost > args.max_cost:
                     continue
                 if is_kata_only(surface) and cost > args.kata_max_cost:
+                    continue
+                if 1921 <= lid <= 1923 and cost > args.name_max_cost:
+                    continue
+                if (lid == 1920 or 1924 <= lid <= 1929) and cost > args.proper_max_cost:
                     continue
                 key = (reading, surface, lid, rid)
                 if key not in best or cost < best[key]:
@@ -120,6 +126,31 @@ def main():
     assert count == n * n, (count, n * n)
     with open(os.path.join(args.out, "conn.bin"), "wb") as f:
         f.write(out)
+
+    # 予測変換に使える品詞の表 (pos.bin): id ごとに1バイト(1=使える)
+    flags = bytearray(n)
+    id_def = os.path.join(args.src, "id.def")
+    if os.path.exists(id_def):
+        with open(id_def, encoding="utf-8") as fh:
+            for line in fh:
+                head, _, rest = line.rstrip("\n").partition(" ")
+                f = rest.split(",")
+                if not head.isdigit() or len(f) < 6:
+                    continue
+                i = int(head)
+                pos, sub, form = f[0], f[1], f[5]
+                ok = False
+                if pos == "名詞":
+                    ok = sub in ("一般", "サ変接続", "副詞可能", "固有名詞") and not (1921 <= i <= 1923)
+                elif pos in ("動詞", "形容詞"):
+                    ok = sub == "自立" and form == "基本形"
+                elif pos in ("副詞", "感動詞", "接続詞", "連体詞"):
+                    ok = True
+                if ok and i < n:
+                    flags[i] = 1
+        with open(os.path.join(args.out, "pos.bin"), "wb") as f:
+            f.write(bytes(flags))
+        print(f"pos.bin: 予測に使える品詞 {sum(flags)} / {n}", file=sys.stderr)
 
     for name in ("dict.bin", "conn.bin"):
         size = os.path.getsize(os.path.join(args.out, name))

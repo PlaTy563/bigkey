@@ -26,6 +26,9 @@ public class ConverterCli {
         byte[] conn = Files.readAllBytes(Paths.get(args[0], "conn.bin"));
         long t0 = System.nanoTime();
         Converter c = Converter.load(dict, conn);
+        if (Files.exists(Paths.get(args[0], "pos.bin"))) {
+            c.setPredictable(Files.readAllBytes(Paths.get(args[0], "pos.bin")));
+        }
         out.printf("読み込み %.1f ms%n", (System.nanoTime() - t0) / 1e6);
 
         // ウォームアップ
@@ -40,6 +43,15 @@ public class ConverterCli {
             List<Converter.Candidate> r = c.convert(line.trim(), 6);
             double ms = (System.nanoTime() - s) / 1e6;
             out.printf("%s -> %s  (%.2f ms)%n", line.trim(), texts(r), ms);
+        }
+
+        out.println("--- 予測変換");
+        for (String pre : new String[] {"あ", "き", "に", "か", "あり", "ありが", "おね", "こん", "しゅ", "い", "ぱ"}) {
+            StringBuilder sb = new StringBuilder();
+            for (Converter.Candidate cand : c.predict(pre, 8, null)) {
+                sb.append(cand.text).append("(").append(cand.predictReading).append(") ");
+            }
+            out.println(pre + " -> " + sb);
         }
 
         // 履歴の反映: 「きのう→昨日」を1回選んだ場合

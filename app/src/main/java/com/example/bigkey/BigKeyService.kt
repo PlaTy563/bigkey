@@ -402,6 +402,23 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
                 setOnClickListener {
                     currentInputConnection?.let { ic -> commitCandidateAt(ic, i) }
                 }
+                setOnLongClickListener {
+                    // 長押しで、この候補を今後出さないようにする
+                    if (c.text != candidateReading) {
+                        dict.hide(candidateReading, c)
+                        val ic = currentInputConnection
+                        if (ic != null && liveActive) {
+                            candidates = dict.candidates(candidateReading)
+                            ic.setComposingText(candidates[0].text + composer.trailingRomaji(), 1)
+                        } else {
+                            candidates = dict.candidates(candidateReading)
+                        }
+                        candIndex = if (candIndex >= 0) 0 else -1
+                        refreshBar()
+                        android.widget.Toast.makeText(this@BigKeyService, "「${c.text}」を候補から外しました", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    true
+                }
             }
             candRow.addView(
                 tv,

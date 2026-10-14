@@ -23,6 +23,7 @@ object Backup {
             .put("settings", settings)
             .put("learn", LearnStore.instance(ctx).toJson())
             .put("pinned", ClipStore.instance(ctx).toJson())
+            .put("hidden", HiddenStore.instance(ctx).toJson())
             .toString(2)
     }
 
@@ -51,6 +52,7 @@ object Backup {
 
         val l = root.optJSONObject("learn")
         if (l != null) LearnStore.instance(ctx).replaceFrom(l)
+        root.optJSONArray("hidden")?.let { HiddenStore.instance(ctx).replaceFrom(it) }
         root.optJSONArray("pinned")?.let { ClipStore.instance(ctx).replacePinned(it) }
     }
 }

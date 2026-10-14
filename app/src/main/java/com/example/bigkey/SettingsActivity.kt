@@ -114,6 +114,16 @@ class SettingsActivity : ComponentActivity() {
         root.addView(button("ファイルに書き出す") { exportLauncher.launch("bigkey-backup.json") })
         root.addView(button("ファイルから復元する") { importLauncher.launch(arrayOf("*/*")) })
 
+        root.addView(heading("候補の整理"))
+        root.addView(TextView(this).apply {
+            text = "候補バーの候補を長押しすると、その候補を今後出さないようにできます。"
+            textSize = 13f
+        })
+        root.addView(button("外した候補をすべて元に戻す") {
+            HiddenStore.instance(this).clear()
+            toast("元に戻しました")
+        })
+
         root.addView(heading("ライセンス"))
         root.addView(button("変換辞書のライセンスを見る") {
             val text = try {

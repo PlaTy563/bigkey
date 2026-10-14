@@ -4,7 +4,9 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 
 /**
@@ -46,6 +48,7 @@ public final class Converter {
         public final int segStart; // 差し替えた単語の、読みの中での開始位置。最良の変換結果では -1
         public final int segEnd;
         public final String segSurface;
+        public String predictReading; // 予測変換の候補では、その候補の読み全体。それ以外は null
 
         Candidate(String text, int segStart, int segEnd, String segSurface) {
             this.text = text;
@@ -54,6 +57,10 @@ public final class Converter {
             this.segSurface = segSurface;
         }
     }
+
+    private static final int ALT_MAX_DELTA = 3500;
+    private static final int PREDICT_LEN_PENALTY = 350;
+    private static final int PREDICT_SCAN_MAX = 60000;
 
     private final ByteBuffer dict;
     private final ByteBuffer conn;
@@ -95,6 +102,16 @@ public final class Converter {
         public int compareTo(Alt o) {
             return Integer.compare(delta, o.delta);
         }
+    }
+
+    private byte[] predictable; // 品詞idごとに、予測変換に使ってよいなら1
+
+    public void setPredictable(byte[] flags) {
+        this.predictable = flags;
+    }
+
+    private boolean canPredict(int lid) {
+        return predictable == null || (lid >= 0 && lid < predictable.length && predictable[lid] != 0);
     }
 
     public static Converter load(byte[] dictBytes, byte[] connBytes) {
@@ -370,6 +387,9 @@ public final class Converter {
                     continue;
                 }
                 int delta = segmentCost(before, alt, after) - curCost;
+                if (delta > ALT_MAX_DELTA || isNoiseAlt(cur, alt)) {
+                    continue;
+                }
                 String text = head + alt.surface + tail;
                 alts.add(new Alt(delta, new Candidate(text, cur.start, cur.end, alt.surface)));
             }
@@ -386,6 +406,89 @@ public final class Converter {
 
         result.addAll(out.values());
         return result;
+    }
+
+    /**
+     * 予測変換。prefix で始まる、より長い読みの先頭候補を、費用の小さい順（短い読みを優先）に返す。
+     * 返す候補は入力中の文字列全体を置き換えるもので、predictReading にその読みを入れる。
+     */
+    public List<Candidate> predict(String prefix, int limit, Bias bias) {
+        List<Candidate> result = new ArrayList<>();
+        int plen = prefix.length();
+        if (plen == 0) {
+            return result;
+        }
+        int idx = lowerBound(prefix, 0, plen, 0);
+        List<Alt> found = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (int i = idx; i < readingCount && i - idx < PREDICT_SCAN_MAX && startsWith(i, prefix, 0, plen); i++) {
+            int p = recordPos(i);
+            int len = dict.get(p) & 0xFF;
+            if (len == plen) {
+                continue; // 同じ読みは通常の変換で出る
+            }
+            char[] rc = new char[len];
+            for (int k = 0; k < len; k++) {
+                rc[k] = dict.getChar(p + 1 + 2 * k);
+            }
+            String reading = new String(rc);
+            p += 1 + 2 * len;
+            int count = dict.get(p) & 0xFF;
+            p += 1;
+            for (int e = 0; e < count && e < 4; e++) {
+                int lid = dict.getShort(p);
+                int cost = dict.getShort(p + 4);
+                int sl = dict.get(p + 6) & 0xFF;
+                p += 7;
+                char[] chars = new char[sl];
+                for (int k = 0; k < sl; k++) {
+                    chars[k] = dict.getChar(p + 2 * k);
+                }
+                p += 2 * sl;
+                String surface = new String(chars);
+                if (!canPredict(lid)) {
+                    continue;
+                }
+                if (bias != null) {
+                    cost -= Math.min(bias.count(reading, surface), BIAS_MAX_COUNT) * BIAS_PER_COUNT;
+                }
+                int score = cost + (len - plen) * PREDICT_LEN_PENALTY;
+                Candidate c = new Candidate(surface, -1, -1, null);
+                c.predictReading = reading;
+                found.add(new Alt(score, c));
+            }
+        }
+        Collections.sort(found);
+        for (Alt a : found) {
+            if (result.size() >= limit) {
+                break;
+            }
+            if (seen.add(a.candidate.text)) {
+                result.add(a.candidate);
+            }
+        }
+        return result;
+    }
+
+    /** 差し替え候補に出さない単語: ひらがな1〜2文字の語（助詞など）を、カタカナ・数字・別の漢字に替えるもの。 */
+    private static boolean isNoiseAlt(Node cur, Node alt) {
+        int len = cur.end - cur.start;
+        if (len > 2) {
+            return false;
+        }
+        boolean curKana = true;
+        for (int i = 0; i < cur.surface.length(); i++) {
+            if (!isKana(cur.surface.charAt(i))) {
+                curKana = false;
+                break;
+            }
+        }
+        if (!curKana) {
+            return false;
+        }
+        char a = alt.surface.charAt(0);
+        boolean altKana = a >= 'ぁ' && a <= 'ゖ';
+        return !altKana;
     }
 
     private int segmentCost(Node before, Node node, Node after) {

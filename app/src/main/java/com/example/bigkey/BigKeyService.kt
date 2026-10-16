@@ -113,23 +113,26 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         val toolRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Theme.of(this@BigKeyService).bar)
-            for (v in listOf(leftButton, rightButton, editButton, emojiButton, voiceButton)) {
+            // 左: Bitwarden（送信キーから遠ざける）と各種ボタン。右: カーソル移動を大きく並べて親指の近くに置く
+            for (v in listOf(bwButton, editButton, emojiButton, voiceButton)) {
                 addView(
                     v,
-                    LinearLayout.LayoutParams(dp(46), dp(32)).apply {
+                    LinearLayout.LayoutParams(dp(46), dp(36)).apply {
                         gravity = Gravity.CENTER_VERTICAL
                         setMargins(dp(5), 0, 0, 0)
                     }
                 )
             }
             addView(View(this@BigKeyService), LinearLayout.LayoutParams(0, 1, 1f))
-            addView(
-                bwButton,
-                LinearLayout.LayoutParams(dp(52), dp(32)).apply {
-                    gravity = Gravity.CENTER_VERTICAL
-                    setMargins(0, 0, dp(8), 0)
-                }
-            )
+            for (v in listOf(leftButton, rightButton)) {
+                addView(
+                    v,
+                    LinearLayout.LayoutParams(dp(64), dp(36)).apply {
+                        gravity = Gravity.CENTER_VERTICAL
+                        setMargins(dp(4), 0, dp(4), 0)
+                    }
+                )
+            }
         }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -141,7 +144,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             // 日本語入力中だけ、ローマ字として続かないキーを選ばれにくくする
             it.likelyPredicate = { c -> !japanese || composer.canContinue(c) }
         }
-        root.addView(toolRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)))
+        root.addView(toolRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
         root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
         panel = buildPanel()
         val body = FrameLayout(this).apply {

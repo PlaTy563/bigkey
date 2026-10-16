@@ -14,6 +14,10 @@ object Prefs {
     const val TAP_LEARN = "tap_learn"
     const val TAP_DX = "tap_dx"
     const val TAP_DY = "tap_dy"
+    const val TOOLBAR_ORDER = "toolbar_order"
+    const val TOOLBAR_HIDDEN = "toolbar_hidden"
+
+    val TOOLBAR_ALL = listOf("bw", "clip", "emoji", "mic", "spacer", "select", "left", "right")
 
     const val DEFAULT_HEIGHT = 64
     const val MIN_HEIGHT = 44
@@ -36,6 +40,15 @@ object Prefs {
     fun showBitwarden(ctx: Context): Boolean = get(ctx).getBoolean(SHOW_BITWARDEN, true)
 
     fun clipRecord(ctx: Context): Boolean = get(ctx).getBoolean(CLIP_RECORD, true)
+
+    /** ツールバーのボタンの並び。保存されていない・足りないものは標準の位置に補う。 */
+    fun toolbarOrder(ctx: Context): List<String> {
+        val saved = (get(ctx).getString(TOOLBAR_ORDER, "") ?: "").split(",").filter { it in TOOLBAR_ALL }.distinct()
+        return saved + TOOLBAR_ALL.filter { it !in saved }
+    }
+
+    fun toolbarHidden(ctx: Context): Set<String> =
+        (get(ctx).getString(TOOLBAR_HIDDEN, "") ?: "").split(",").filter { it in TOOLBAR_ALL && it != "spacer" }.toSet()
 
     fun tapLearn(ctx: Context): Boolean = get(ctx).getBoolean(TAP_LEARN, true)
 

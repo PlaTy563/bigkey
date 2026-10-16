@@ -268,6 +268,69 @@ class SettingsActivity : ComponentActivity() {
             toast("リセットしました")
         })
 
+        root.addView(heading("ツールバーのボタン"))
+        val toolBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(toolBox)
+        val toolNames = mapOf(
+            "bw" to "Bitwarden（鍵）", "clip" to "クリップボード", "emoji" to "絵文字", "mic" to "音声入力",
+            "select" to "範囲選択", "left" to "カーソル左", "right" to "カーソル右", "spacer" to "—— ここから右に寄せる ——"
+        )
+        fun refreshToolbar() {
+            toolBox.removeAllViews()
+            val order = Prefs.toolbarOrder(this).toMutableList()
+            val hidden = Prefs.toolbarHidden(this).toMutableSet()
+            fun save() {
+                sp.edit()
+                    .putString(Prefs.TOOLBAR_ORDER, order.joinToString(","))
+                    .putString(Prefs.TOOLBAR_HIDDEN, hidden.joinToString(","))
+                    .apply()
+                refreshToolbar()
+            }
+            for ((i, id) in order.withIndex()) {
+                toolBox.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    if (id == "spacer") {
+                        addView(
+                            TextView(this@SettingsActivity).apply { text = toolNames[id]; textSize = 13f },
+                            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        )
+                    } else {
+                        addView(
+                            Switch(this@SettingsActivity).apply {
+                                text = toolNames[id]
+                                isChecked = id !in hidden
+                                setOnCheckedChangeListener { _, on ->
+                                    if (on) hidden.remove(id) else hidden.add(id)
+                                    sp.edit().putString(Prefs.TOOLBAR_HIDDEN, hidden.joinToString(",")).apply()
+                                }
+                            },
+                            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        )
+                    }
+                    addView(Button(this@SettingsActivity).apply {
+                        text = "↑"
+                        isEnabled = i > 0
+                        setOnClickListener { java.util.Collections.swap(order, i, i - 1); save() }
+                    })
+                    addView(Button(this@SettingsActivity).apply {
+                        text = "↓"
+                        isEnabled = i < order.size - 1
+                        setOnClickListener { java.util.Collections.swap(order, i, i + 1); save() }
+                    })
+                })
+            }
+        }
+        refreshToolbar()
+        root.addView(button("ボタンの並びを標準に戻す") {
+            sp.edit().remove(Prefs.TOOLBAR_ORDER).remove(Prefs.TOOLBAR_HIDDEN).apply()
+            refreshToolbar()
+        })
+        root.addView(TextView(this).apply {
+            text = "左から順に並びます。「ここから右に寄せる」より後ろのボタンは、右端に寄ります。変更は次に入力欄を開いたときに反映されます。"
+            textSize = 13f
+        })
+
         root.addView(heading("候補の整理"))
         root.addView(TextView(this).apply {
             text = "候補バーの候補を長押しすると、その候補を今後出さないようにできます。"

@@ -36,6 +36,21 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private lateinit var editButton: View
     private lateinit var overlay: PreviewOverlay
     private val candViews = ArrayList<View>()
+    private lateinit var toolRow: LinearLayout
+    private val toolViews = HashMap<String, View>()
+    private lateinit var selectButton: IconButton
+    private lateinit var expandButton: IconButton
+    private lateinit var candView: LinearLayout
+    private lateinit var candGrid: LinearLayout
+    private lateinit var enDict: EnglishDict
+    private var selectMode = false // オンのあいだ、カーソルの矢印で範囲を選ぶ
+    private var enWord = "" // 英字入力中の、打ちかけの単語
+    private var enSug: List<String> = emptyList()
+    private var suggestEn = false
+    private var undoInfo: UndoInfo? = null
+
+    /** 確定した変換を取り消して、読みに戻すための情報。 */
+    private class UndoInfo(val reading: String, val committed: String, val cand: Dictionary.Cand?, val trailing: String)
     private var lastCommitted = "" // 直前に確定した文字列（次の語の予測に使う）
     private var suggestions: List<String> = emptyList()
     private lateinit var panel: LinearLayout
@@ -61,6 +76,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     override fun onCreate() {
         super.onCreate()
         dict = Dictionary(this)
+        enDict = EnglishDict(this)
         clipStore = ClipStore.instance(this)
         clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         try {
@@ -110,34 +126,36 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         val rightButton = IconButton(this, IconButton.Icon.RIGHT, "カーソルを右へ").apply { repeatAction = { onCursor(1) } }
         val emojiButton = IconButton(this, IconButton.Icon.EMOJI, "絵文字").apply { setOnClickListener { openPanel(true) } }
         val voiceButton = IconButton(this, IconButton.Icon.MIC, "音声入力").apply { setOnClickListener { startVoice() } }
-        val toolRow = LinearLayout(this).apply {
+        selectButton = IconButton(this, IconButton.Icon.SELECT, "範囲選択").apply {
+            setOnClickListener { setSelectMode(!selectMode) }
+        }
+        toolViews["bw"] = bwButton
+        toolViews["clip"] = editButton
+        toolViews["emoji"] = emojiButton
+        toolViews["mic"] = voiceButton
+        toolViews["select"] = selectButton
+        toolViews["left"] = leftButton
+        toolViews["right"] = rightButton
+        toolRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Theme.of(this@BigKeyService).bar)
-            // 左: Bitwarden（送信キーから遠ざける）と各種ボタン。右: カーソル移動を大きく並べて親指の近くに置く
-            for (v in listOf(bwButton, editButton, emojiButton, voiceButton)) {
-                addView(
-                    v,
-                    LinearLayout.LayoutParams(dp(46), dp(36)).apply {
-                        gravity = Gravity.CENTER_VERTICAL
-                        setMargins(dp(5), 0, 0, 0)
-                    }
-                )
-            }
-            addView(View(this@BigKeyService), LinearLayout.LayoutParams(0, 1, 1f))
-            for (v in listOf(leftButton, rightButton)) {
-                addView(
-                    v,
-                    LinearLayout.LayoutParams(dp(64), dp(36)).apply {
-                        gravity = Gravity.CENTER_VERTICAL
-                        setMargins(dp(4), 0, dp(4), 0)
-                    }
-                )
-            }
         }
+        layoutToolbar()
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Theme.of(this@BigKeyService).bar)
             addView(barFrame, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            expandButton = IconButton(this@BigKeyService, IconButton.Icon.DOWN, "候補をすべて表示").apply {
+                visibility = View.GONE
+                setOnClickListener { openCandList() }
+            }
+            addView(
+                expandButton,
+                LinearLayout.LayoutParams(dp(48), dp(34)).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setMargins(dp(4), 0, dp(6), 0)
+                }
+            )
         }
         kb = KeyboardView(this).also {
             it.listener = this
@@ -187,6 +205,10 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         clearState()
         if (::panel.isInitialized) closePanel()
         resetSuggest()
+        enWord = ""
+        enSug = emptyList()
+        undoInfo = null
+        setSelectMode(false)
         VoiceBridge.consume()?.let { currentInputConnection?.commitText(it, 1) }
 
         val cls = info.inputType and InputType.TYPE_MASK_CLASS
@@ -201,7 +223,10 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         noLearn = (info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
 
         japanese = userJapanese && !forceEnglish
+        suggestEn = cls == InputType.TYPE_CLASS_TEXT && !forceEnglish &&
+            (info.inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == 0
         kb.reloadSettings()
+        layoutToolbar()
         bwButton.visibility = if (Prefs.showBitwarden(this) && bitwardenIntent() != null) View.VISIBLE else View.GONE
         kb.setJapanese(japanese)
         kb.setSymbolLayer(
@@ -224,6 +249,14 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         candidatesStart: Int, candidatesEnd: Int
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        if (enWord.isNotEmpty()) {
+            val before = currentInputConnection?.getTextBeforeCursor(enWord.length, 0)?.toString()
+            if (before != enWord) {
+                enWord = ""
+                enSug = emptyList()
+                refreshBar()
+            }
+        }
         val active = !composer.isEmpty() || candIndex >= 0
         if (active && (newSelStart != candidatesEnd || newSelEnd != candidatesEnd)) {
             clearState()
@@ -235,11 +268,14 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
 
     override fun onText(key: KeyboardView.Key, shifted: Boolean) {
         val ic = currentInputConnection ?: return
+        if (selectMode) setSelectMode(false)
 
         if (!japanese) {
             val s = if (key.kind == KeyboardView.Kind.LETTER && shifted) key.text.uppercase() else key.text
             ic.commitText(s, 1)
             resetSuggest()
+            enWord = if (key.kind == KeyboardView.Kind.LETTER) enWord + s else ""
+            updateEnglish()
             return
         }
 
@@ -269,6 +305,10 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         val ic = currentInputConnection ?: return
         if (!japanese || (composer.isEmpty() && candIndex < 0)) {
             ic.commitText(" ", 1)
+            if (enWord.isNotEmpty()) {
+                enWord = ""
+                updateEnglish()
+            }
             return
         }
         if (candIndex < 0) {
@@ -292,6 +332,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
 
     override fun onBackspace() {
         val ic = currentInputConnection ?: return
+        if (selectMode) setSelectMode(false)
         if (japanese) {
             if (candIndex >= 0) {
                 // 変換を取り消して読みに戻す
@@ -305,7 +346,63 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             }
         }
         resetSuggest()
+        if (enWord.isNotEmpty()) {
+            enWord = enWord.dropLast(1)
+            updateEnglish()
+        }
         sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+    }
+
+    /** 削除キーを左になぞったとき: カーソルの手前の1語（同じ種類の文字の連なり）を消す。 */
+    override fun onDeleteWord() {
+        val ic = currentInputConnection ?: return
+        if (japanese && (candIndex >= 0 || !composer.isEmpty())) {
+            // 入力中の文字は、すべて消す
+            composer.clear()
+            candidates = emptyList()
+            candIndex = -1
+            liveActive = false
+            ic.setComposingText("", 1)
+            ic.finishComposingText()
+            clearState()
+            return
+        }
+        resetSuggest()
+        val before = currentInputConnection?.getTextBeforeCursor(60, 0)?.toString() ?: ""
+        if (before.isEmpty()) {
+            sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+            return
+        }
+        ic.deleteSurroundingText(wordLengthBefore(before), 0)
+        enWord = ""
+        updateEnglish()
+    }
+
+    private fun charClass(cp: Int): Int = when {
+        Character.isWhitespace(cp) -> 0
+        cp < 128 && (Character.isLetterOrDigit(cp) || cp == '_'.code) -> 1
+        cp in 0x3040..0x309F -> 2 // ひらがな
+        cp in 0x30A0..0x30FF -> 3 // カタカナ（ー を含む）
+        Character.isLetterOrDigit(cp) -> 4 // 漢字など
+        else -> 5 // 記号
+    }
+
+    /** text の末尾から数えて、消す1語ぶんの長さ（UTF-16 の単位）。 */
+    private fun wordLengthBefore(text: String): Int {
+        var i = text.length
+        while (i > 0) {
+            val cp = Character.codePointBefore(text, i)
+            if (charClass(cp) != 0) break
+            i -= Character.charCount(cp)
+        }
+        if (i == 0) return text.length
+        val cls = charClass(Character.codePointBefore(text, i))
+        while (i > 0) {
+            val cp = Character.codePointBefore(text, i)
+            if (charClass(cp) != cls) break
+            i -= Character.charCount(cp)
+        }
+        return text.length - i
     }
 
     override fun onEnter() {
@@ -332,6 +429,8 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
 
     override fun onToggleMode() {
         currentInputConnection?.let { commitAsIs(it) }
+        enWord = ""
+        enSug = emptyList()
         japanese = !japanese
         userJapanese = japanese
         kb.setJapanese(japanese)
@@ -380,8 +479,10 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
                 committed = composer.kanaText()
                 ic.commitText(committed, 1)
             }
+            val reading = candidateReading
+            val liveConverted = liveActive && committed != composer.kanaText() + trailing
             clearState()
-            afterCommit(committed)
+            afterCommit(committed, if (liveConverted) UndoInfo(reading, committed, null, trailing) else null)
         }
     }
 
@@ -390,14 +491,52 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         // 末尾に未確定のローマ字が残っているときは、それもそのまま確定する
         val trailing = if (liveActive && candIndex < 0) composer.trailingRomaji() else ""
         ic.commitText(cand.text + trailing, 1)
-        if (!noLearn && cand.text != candidateReading) dict.learn(candidateReading, cand)
+        val reading = candidateReading
+        if (!noLearn && cand.text != reading) dict.learn(reading, cand)
         if (cand.isEmoji) addRecentEmoji(cand.text)
         clearState()
-        afterCommit(cand.text + trailing)
+        afterCommit(
+            cand.text + trailing,
+            if (!cand.isEmoji) UndoInfo(reading, cand.text + trailing, cand, trailing) else null
+        )
+    }
+
+    /** 確定した変換を取り消して読みに戻し、次の候補を表示する。 */
+    private fun undoCommit() {
+        val u = undoInfo ?: return
+        val ic = currentInputConnection ?: return
+        val before = ic.getTextBeforeCursor(u.committed.length, 0)?.toString()
+        if (before != u.committed) {
+            undoInfo = null
+            refreshBar()
+            android.widget.Toast.makeText(this, "カーソルが動いたので戻せません", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        ic.deleteSurroundingText(u.committed.length, 0)
+        if (!noLearn && u.cand != null && u.cand.text != u.reading) dict.unlearn(u.reading, u.cand)
+        undoInfo = null
+        lastCommitted = ""
+        suggestions = emptyList()
+        composer.clear()
+        composer.appendLiteral(u.reading)
+        if (u.trailing.isNotEmpty()) composer.appendLiteral(u.trailing)
+        candidateReading = u.reading
+        candidates = dict.candidates(u.reading)
+        liveActive = false
+        val same = candidates.indexOfFirst { it.text + u.trailing == u.committed }
+        candIndex = if (candidates.isEmpty()) -1 else if (same >= 0 && candidates.size > 1) (same + 1) % candidates.size else 0
+        if (candIndex >= 0) {
+            ic.setComposingText(candidates[candIndex].text + u.trailing, 1)
+        } else {
+            ic.setComposingText(composer.displayText(), 1)
+        }
+        refreshBar()
+        kb.setComposing(true)
     }
 
     /** 確定したあとの処理: 次に続きそうな言葉を探し、並びを覚える。 */
-    private fun afterCommit(text: String) {
+    private fun afterCommit(text: String, undo: UndoInfo? = null) {
+        undoInfo = undo
         if (!noLearn && lastCommitted.isNotEmpty()) dict.recordNext(lastCommitted, text)
         lastCommitted = text
         suggestions = dict.nextSuggestions(text)
@@ -405,7 +544,8 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     }
 
     private fun resetSuggest() {
-        if (lastCommitted.isEmpty() && suggestions.isEmpty()) return
+        if (lastCommitted.isEmpty() && suggestions.isEmpty() && undoInfo == null) return
+        undoInfo = null
         lastCommitted = ""
         suggestions = emptyList()
         refreshBar()
@@ -428,30 +568,17 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         updateBarVisibility()
         val pal = Theme.of(this)
         if (candidates.isEmpty() && composer.isEmpty()) {
-            for (sug in suggestions) {
-                val tv = TextView(this).apply {
-                    text = sug
-                    textSize = 18f
-                    gravity = Gravity.CENTER
-                    setPadding(dp(14), 0, dp(14), 0)
-                    setTextColor(pal.text)
-                    background = android.graphics.drawable.GradientDrawable().apply {
-                        setColor(pal.special)
-                        cornerRadius = dp(18).toFloat()
-                    }
-                    setOnClickListener {
-                        val ic = currentInputConnection ?: return@setOnClickListener
+            undoInfo?.let { addChip("↩ 戻す", pal, true) { undoCommit() } }
+            if (!japanese) {
+                for (w in enSug) addChip(w, pal, false) { pickEnglish(w) }
+            } else {
+                for (sug in suggestions) {
+                    addChip(sug, pal, false) {
+                        val ic = currentInputConnection ?: return@addChip
                         ic.commitText(sug, 1)
                         afterCommit(sug)
                     }
                 }
-                candRow.addView(
-                    tv,
-                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply {
-                        gravity = Gravity.CENTER_VERTICAL
-                        setMargins(dp(4), dp(4), dp(4), dp(4))
-                    }
-                )
             }
         }
         candidates.forEachIndexed { i, c ->
@@ -506,11 +633,128 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
                 }
             )
         }
+        if (::expandButton.isInitialized) {
+            expandButton.visibility = if (candidates.size > 1) View.VISIBLE else View.GONE
+        }
         if (candIndex >= 0) {
             candScroll.post { candViews.getOrNull(candIndex)?.let { candScroll.smoothScrollTo(it.left, 0) } }
         } else {
             candScroll.scrollTo(0, 0)
         }
+    }
+
+    private fun addChip(label: String, pal: Palette, accent: Boolean, onClick: () -> Unit) {
+        val tv = TextView(this).apply {
+            text = label
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(dp(14), 0, dp(14), 0)
+            setTextColor(if (accent) pal.accentText else pal.text)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(if (accent) pal.accent else pal.special)
+                cornerRadius = dp(18).toFloat()
+            }
+            setOnClickListener { onClick() }
+        }
+        candRow.addView(
+            tv,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setMargins(dp(4), dp(4), dp(4), dp(4))
+            }
+        )
+    }
+
+    // ---- 英単語の候補 ----
+
+    private fun updateEnglish() {
+        enSug = if (!japanese && suggestEn && enWord.length >= 2) enDict.complete(enWord, 6) else emptyList()
+        refreshBar()
+    }
+
+    private fun pickEnglish(w: String) {
+        val ic = currentInputConnection ?: return
+        ic.deleteSurroundingText(enWord.length, 0)
+        ic.commitText("$w ", 1)
+        enWord = ""
+        enSug = emptyList()
+        refreshBar()
+    }
+
+    // ---- ツールバー ----
+
+    /** 設定の並び順と表示に従って、ツールバーのボタンを並べ直す。 */
+    private fun layoutToolbar() {
+        if (!::toolRow.isInitialized) return
+        toolRow.removeAllViews()
+        val hidden = Prefs.toolbarHidden(this)
+        for (id in Prefs.toolbarOrder(this)) {
+            if (id == "spacer") {
+                toolRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+                continue
+            }
+            if (id in hidden) continue
+            val v = toolViews[id] ?: continue
+            val wide = id == "left" || id == "right" || id == "select"
+            toolRow.addView(
+                v,
+                LinearLayout.LayoutParams(dp(if (wide) 64 else 46), dp(36)).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setMargins(dp(4), 0, dp(4), 0)
+                }
+            )
+        }
+    }
+
+    private fun setSelectMode(on: Boolean) {
+        selectMode = on
+        if (::selectButton.isInitialized) selectButton.active = on
+    }
+
+    // ---- 候補の一覧 ----
+
+    private fun openCandList() {
+        if (candidates.size < 2) return
+        val pal = Theme.of(this)
+        candGrid.removeAllViews()
+        val cols = 3
+        var row: LinearLayout? = null
+        for ((i, c) in candidates.withIndex()) {
+            if (i % cols == 0) {
+                row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                candGrid.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
+            }
+            row?.addView(
+                TextView(this).apply {
+                    text = c.text
+                    textSize = 18f
+                    gravity = Gravity.CENTER
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    setTextColor(pal.text)
+                    setPadding(dp(6), 0, dp(6), 0)
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(pal.special)
+                        cornerRadius = dp(12).toFloat()
+                    }
+                    setOnClickListener {
+                        closePanel()
+                        currentInputConnection?.let { ic -> commitCandidateAt(ic, i) }
+                    }
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { setMargins(dp(3), dp(3), dp(3), dp(3)) }
+            )
+        }
+        // 最後の段の空きを埋めて、幅をそろえる
+        val rest = (cols - candidates.size % cols) % cols
+        repeat(rest) {
+            row?.addView(View(this), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        }
+        editView.visibility = View.GONE
+        emojiView.visibility = View.GONE
+        candView.visibility = View.VISIBLE
+        panel.visibility = View.VISIBLE
+        kb.visibility = View.INVISIBLE
     }
 
     // ---- カーソル移動 ----
@@ -519,7 +763,17 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         val ic = currentInputConnection ?: return
         if (japanese && (candIndex >= 0 || !composer.isEmpty())) commitAsIs(ic)
         resetSuggest()
-        sendDownUpKeyEvents(if (delta < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT)
+        enWord = ""
+        enSug = emptyList()
+        val code = if (delta < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT
+        if (selectMode) {
+            // Shift を押しながら矢印を押したことにして、範囲を広げる
+            val t = android.os.SystemClock.uptimeMillis()
+            ic.sendKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0, KeyEvent.META_SHIFT_ON))
+            ic.sendKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_UP, code, 0, KeyEvent.META_SHIFT_ON))
+        } else {
+            sendDownUpKeyEvents(code)
+        }
     }
 
     // ---- 編集パネル（カーソル移動・コピー・貼り付け・クリップボード履歴） ----
@@ -576,12 +830,23 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         }
         emojiView = buildEmojiView(pal)
+        candGrid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        candView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            addView(
+                tool("閉じる") { closePanel() },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply { setMargins(dp(3), dp(4), dp(3), dp(4)) }
+            )
+            addView(ScrollView(context).apply { addView(candGrid) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(pal.bg)
             visibility = View.GONE
             addView(editView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             addView(emojiView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(candView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
     }
 
@@ -719,11 +984,14 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     }
 
     private fun openPanel(emoji: Boolean) {
-        if (panel.visibility == View.VISIBLE && (emojiView.visibility == View.VISIBLE) == emoji) {
+        if (panel.visibility == View.VISIBLE && candView.visibility != View.VISIBLE &&
+            (emojiView.visibility == View.VISIBLE) == emoji
+        ) {
             closePanel()
             return
         }
         currentInputConnection?.let { if (japanese) commitAsIs(it) }
+        candView.visibility = View.GONE
         if (emoji) {
             editView.visibility = View.GONE
             emojiView.visibility = View.VISIBLE

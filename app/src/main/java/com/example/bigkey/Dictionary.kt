@@ -189,6 +189,23 @@ class Dictionary(context: Context) {
         }
     }
 
+    /** learn の取り消し（確定を戻したとき）。 */
+    fun unlearn(reading: String, cand: Cand) {
+        if (cand.isEmoji) return
+        val s = cand.surfaces
+        val r = cand.readings
+        if (cand.predictReading != null) {
+            learn.unrecord(cand.predictReading, cand.text)
+        } else if (s != null && r != null && s.size == r.size) {
+            for (i in s.indices) {
+                if (s[i] != r[i]) learn.unrecord(r[i], s[i])
+                if (i > 0) learn.unrecord("pair:${s[i - 1]}", s[i])
+            }
+        } else if (cand.text != reading && cand.text == toKatakana(reading)) {
+            learn.unrecord(reading, cand.text)
+        }
+    }
+
     /** 確定した文字列の並びを覚える（次の語の予測に使う）。 */
     fun recordNext(prev: String, cur: String) {
         if (prev.isEmpty() || cur.isEmpty() || prev.length > 30 || cur.length > 30) return

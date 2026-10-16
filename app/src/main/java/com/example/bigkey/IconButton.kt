@@ -9,7 +9,7 @@ import android.view.View
 
 /** 線で描いたアイコンのボタン。画像ファイルを使わず、図形で描く。 */
 class IconButton(context: Context, private val icon: Icon, description: String) : View(context) {
-    enum class Icon { LEFT, RIGHT, CLIP, EMOJI, MIC, KEY }
+    enum class Icon { LEFT, RIGHT, CLIP, EMOJI, MIC, KEY, SELECT, DOWN }
 
     private val pal = Theme.of(context)
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = pal.special }
@@ -29,6 +29,16 @@ class IconButton(context: Context, private val icon: Icon, description: String) 
         if (icon == Icon.KEY) bgPaint.color = pal.accent.also { line.color = pal.accentText; fill.color = pal.accentText }
     }
 
+    /** 押されたままの状態（範囲選択のオン/オフ）を色で示す。 */
+    var active = false
+        set(v) {
+            field = v
+            bgPaint.color = if (v) pal.accent else pal.special
+            line.color = if (v) pal.accentText else pal.text
+            fill.color = if (v) pal.accentText else pal.text
+            invalidate()
+        }
+
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
@@ -46,6 +56,8 @@ class IconButton(context: Context, private val icon: Icon, description: String) 
             Icon.EMOJI -> drawEmoji(canvas, cx, cy, s)
             Icon.MIC -> drawMic(canvas, cx, cy, s)
             Icon.KEY -> drawKey(canvas, cx, cy, s)
+            Icon.SELECT -> drawSelect(canvas, cx, cy, s)
+            Icon.DOWN -> drawDown(canvas, cx, cy, s)
         }
     }
 
@@ -90,6 +102,24 @@ class IconButton(context: Context, private val icon: Icon, description: String) 
         path.moveTo(x - dir * s * 0.45f, y - s * 1.0f)
         path.lineTo(x + dir * s * 0.55f, y)
         path.lineTo(x - dir * s * 0.45f, y + s * 1.0f)
+        c.drawPath(path, line)
+    }
+
+    private fun drawSelect(c: Canvas, x: Float, y: Float, s: Float) {
+        // 範囲選択: 色のついた選択範囲と、その端のカーソル
+        val a = fill.alpha
+        fill.alpha = 90
+        rect.set(x - s * 1.3f, y - s * 0.8f, x + s * 0.5f, y + s * 0.8f)
+        c.drawRoundRect(rect, s * 0.2f, s * 0.2f, fill)
+        fill.alpha = a
+        c.drawLine(x + s * 0.5f, y - s * 1.1f, x + s * 0.5f, y + s * 1.1f, line)
+    }
+
+    private fun drawDown(c: Canvas, x: Float, y: Float, s: Float) {
+        path.reset()
+        path.moveTo(x - s * 1.0f, y - s * 0.45f)
+        path.lineTo(x, y + s * 0.55f)
+        path.lineTo(x + s * 1.0f, y - s * 0.45f)
         c.drawPath(path, line)
     }
 

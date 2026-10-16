@@ -41,6 +41,7 @@ class KeyboardView(context: Context) : View(context) {
         fun onEnter()
         fun onToggleMode()
         fun onCursor(delta: Int)
+        fun onDeleteWord() {}
     }
 
     var listener: Listener? = null
@@ -83,6 +84,8 @@ class KeyboardView(context: Context) : View(context) {
 
     private val handler = Handler(Looper.getMainLooper())
     private var repeatPointer = -1
+    private var bsLastX = 0f
+    private var bsAcc = 0f
     private val repeatRunnable = object : Runnable {
         override fun run() {
             listener?.onBackspace()
@@ -412,6 +415,8 @@ class KeyboardView(context: Context) : View(context) {
             hasPend = false // 直前の入力は間違いだったので、位置の学習には使わない
             listener?.onBackspace()
             repeatPointer = id
+            bsLastX = x
+            bsAcc = 0f
             handler.postDelayed(repeatRunnable, 400)
         }
         if (k.kind == Kind.SPACE) {
@@ -441,7 +446,19 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun onMove(id: Int, x: Float, y: Float) {
         val cur = pressed[id] ?: return
-        if (id == repeatPointer) return
+        if (id == repeatPointer) {
+            // 削除キーの上を左へなぞると、1語ずつ消す（連続削除は止める）
+            bsAcc += x - bsLastX
+            bsLastX = x
+            val step = dp(44f)
+            while (bsAcc <= -step) {
+                bsAcc += step
+                handler.removeCallbacks(repeatRunnable)
+                listener?.onDeleteWord()
+            }
+            if (bsAcc > 0f) bsAcc = 0f
+            return
+        }
         if (cur.kind == Kind.SPACE && id in spaceLastX) {
             // スペースキーの上を左右になぞるとカーソルが動く
             val acc = (spaceAcc[id] ?: 0f) + (x - (spaceLastX[id] ?: x))

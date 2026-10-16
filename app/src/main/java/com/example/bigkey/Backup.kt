@@ -20,6 +20,8 @@ object Backup {
             .put(Prefs.TAP_LEARN, Prefs.tapLearn(ctx))
             .put(Prefs.TAP_DX, Prefs.tapDx(ctx).toDouble())
             .put(Prefs.TAP_DY, Prefs.tapDy(ctx).toDouble())
+            .put(Prefs.TOOLBAR_ORDER, Prefs.toolbarOrder(ctx).joinToString(","))
+            .put(Prefs.TOOLBAR_HIDDEN, Prefs.toolbarHidden(ctx).joinToString(","))
         return JSONObject()
             .put("app", APP_ID)
             .put("version", VERSION)
@@ -54,6 +56,8 @@ object Backup {
             if (s.has(Prefs.TAP_LEARN)) e.putBoolean(Prefs.TAP_LEARN, s.optBoolean(Prefs.TAP_LEARN, true))
             if (s.has(Prefs.TAP_DX)) e.putFloat(Prefs.TAP_DX, s.optDouble(Prefs.TAP_DX, 0.0).toFloat())
             if (s.has(Prefs.TAP_DY)) e.putFloat(Prefs.TAP_DY, s.optDouble(Prefs.TAP_DY, 0.0).toFloat())
+            if (s.has(Prefs.TOOLBAR_ORDER)) e.putString(Prefs.TOOLBAR_ORDER, s.optString(Prefs.TOOLBAR_ORDER))
+            if (s.has(Prefs.TOOLBAR_HIDDEN)) e.putString(Prefs.TOOLBAR_HIDDEN, s.optString(Prefs.TOOLBAR_HIDDEN))
             e.apply()
         }
 

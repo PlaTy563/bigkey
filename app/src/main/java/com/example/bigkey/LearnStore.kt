@@ -40,6 +40,15 @@ class LearnStore private constructor(private val file: File) {
         save()
     }
 
+    /** record の取り消し。回数を1減らし、0になったら消す。 */
+    @Synchronized
+    fun unrecord(reading: String, cand: String) {
+        val k = "$reading|$cand"
+        val n = counts[k] ?: return
+        if (n <= 1) counts.remove(k) else counts[k] = n - 1
+        save()
+    }
+
     @Synchronized
     fun toJson(): JSONObject {
         val o = JSONObject()

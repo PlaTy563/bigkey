@@ -30,6 +30,7 @@ object Backup {
             .put("pinned", ClipStore.instance(ctx).toJson())
             .put("hidden", HiddenStore.instance(ctx).toJson())
             .put("userdict", UserDict.instance(ctx).toJson())
+            .put("scenes", SceneStore.instance(ctx).toJson())
             .toString(2)
     }
 
@@ -65,6 +66,7 @@ object Backup {
         if (l != null) LearnStore.instance(ctx).replaceFrom(l)
         root.optJSONObject("userdict")?.let { UserDict.instance(ctx).replaceFrom(it) }
         root.optJSONArray("hidden")?.let { HiddenStore.instance(ctx).replaceFrom(it) }
+        root.optJSONArray("scenes")?.let { SceneStore.instance(ctx).replaceFrom(it) }
         root.optJSONArray("pinned")?.let { ClipStore.instance(ctx).replacePinned(it) }
     }
 }

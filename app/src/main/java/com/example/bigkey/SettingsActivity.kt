@@ -202,6 +202,175 @@ class SettingsActivity : ComponentActivity() {
             textSize = 13f
         })
 
+        root.addView(heading("場面ごとの定型文"))
+        val sceneBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(sceneBox)
+        lateinit var refreshScenes: () -> Unit
+
+        fun appLabel(pkg: String): String {
+            if (pkg.isEmpty()) return "すべてのアプリ"
+            return try {
+                packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+            } catch (_: Exception) {
+                pkg
+            }
+        }
+
+        fun editScene(id: String?) {
+            val store = SceneStore.instance(this)
+            val cur = id?.let { store.get(it) }
+            var pkg = cur?.pkg ?: ""
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(48, 16, 48, 0)
+            }
+            val nameIn = EditText(this).apply {
+                hint = "場面の名前（例: 田中さんとのLINE）"
+                setText(cur?.name ?: "")
+                setSingleLine()
+            }
+            val kwIn = EditText(this).apply {
+                hint = "画面上部の文字（例: 田中）。空なら、アプリだけで判定"
+                setText(cur?.keyword ?: "")
+                setSingleLine()
+            }
+            val appBtn = Button(this)
+            appBtn.text = "対象のアプリ: " + appLabel(pkg)
+            appBtn.setOnClickListener {
+                val pm = packageManager
+                val apps = pm.queryIntentActivities(
+                    Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0
+                ).map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+                    .distinctBy { it.first }
+                    .sortedBy { it.second }
+                val labels = (listOf("すべてのアプリ") + apps.map { it.second }).toTypedArray()
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("対象のアプリ")
+                    .setItems(labels) { _, which ->
+                        pkg = if (which == 0) "" else apps[which - 1].first
+                        appBtn.text = "対象のアプリ: " + appLabel(pkg)
+                    }
+                    .show()
+            }
+            box.addView(nameIn)
+            box.addView(appBtn)
+            box.addView(kwIn)
+            android.app.AlertDialog.Builder(this)
+                .setTitle(if (cur == null) "場面を追加" else "場面を編集")
+                .setView(box)
+                .setPositiveButton("保存") { _, _ ->
+                    val n = nameIn.text.toString().trim()
+                    val kw = kwIn.text.toString().trim()
+                    if (n.isEmpty()) {
+                        toast("名前を入れてください")
+                    } else if (kw.isNotEmpty() && pkg.isEmpty()) {
+                        toast("画面上部の文字を使うときは、対象のアプリも選んでください")
+                    } else {
+                        if (cur == null) store.add(n, pkg, kw) else store.update(cur.id, n, pkg, kw)
+                        refreshScenes()
+                    }
+                }
+                .setNegativeButton("やめる", null)
+                .show()
+        }
+
+        fun addSceneSnippet(id: String) {
+            val input = EditText(this).apply {
+                hint = "例: 了解です。あとで連絡します"
+                minLines = 2
+                gravity = android.view.Gravity.TOP
+            }
+            android.app.AlertDialog.Builder(this)
+                .setTitle("この場面の定型文を追加")
+                .setView(input)
+                .setPositiveButton("追加") { _, _ ->
+                    SceneStore.instance(this).addSnippet(id, input.text.toString())
+                    refreshScenes()
+                }
+                .setNegativeButton("やめる", null)
+                .show()
+        }
+
+        refreshScenes = {
+            sceneBox.removeAllViews()
+            val store = SceneStore.instance(this)
+            val list = store.all()
+            if (list.isEmpty()) {
+                sceneBox.addView(TextView(this).apply {
+                    text = "まだ場面がありません"
+                    textSize = 13f
+                })
+            }
+            for (sc in list) {
+                sceneBox.addView(TextView(this).apply {
+                    text = sc.name
+                    textSize = 16f
+                    setPadding(0, 24, 0, 0)
+                })
+                sceneBox.addView(TextView(this).apply {
+                    text = "アプリ: " + appLabel(sc.pkg) + (if (sc.keyword.isNotEmpty()) " / 画面上部に「${sc.keyword}」" else "")
+                    textSize = 12f
+                })
+                for (t in sc.snippets) {
+                    sceneBox.addView(LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                        addView(
+                            TextView(this@SettingsActivity).apply {
+                                text = t
+                                textSize = 15f
+                                maxLines = 2
+                                ellipsize = android.text.TextUtils.TruncateAt.END
+                            },
+                            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        )
+                        addView(Button(this@SettingsActivity).apply {
+                            text = "削除"
+                            setOnClickListener {
+                                store.removeSnippet(sc.id, t)
+                                refreshScenes()
+                            }
+                        })
+                    })
+                }
+                sceneBox.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    addView(Button(this@SettingsActivity).apply {
+                        text = "定型文を追加"
+                        setOnClickListener { addSceneSnippet(sc.id) }
+                    })
+                    addView(Button(this@SettingsActivity).apply {
+                        text = "場面を編集"
+                        setOnClickListener { editScene(sc.id) }
+                    })
+                    addView(Button(this@SettingsActivity).apply {
+                        text = "場面を削除"
+                        setOnClickListener {
+                            android.app.AlertDialog.Builder(this@SettingsActivity)
+                                .setTitle("「${sc.name}」を削除")
+                                .setMessage("この場面の定型文もすべて消えます。")
+                                .setPositiveButton("削除") { _, _ ->
+                                    store.remove(sc.id)
+                                    refreshScenes()
+                                }
+                                .setNegativeButton("やめる", null)
+                                .show()
+                        }
+                    })
+                })
+            }
+        }
+        refreshScenes()
+        root.addView(button("場面を追加する") { editScene(null) })
+        root.addView(TextView(this).apply {
+            text = "場面に合うと、クリップボードのアイコンを開いたとき、その場面の定型文が一番上に並びます。上の「自動」「場面の名前」のボタンで手動でも切り替えられます。\n" +
+                "アプリだけを指定した場面は、キーボードだけで判定できます。LINEのトーク相手など、画面上部の文字で絞るには、端末の「ユーザー補助」で「BigKey 画面の見出し読み取り」をオンにしてください。読み取るのは、場面に登録したアプリの画面の上の部分だけで、保存も送信もしません。"
+            textSize = 13f
+        })
+        root.addView(button("ユーザー補助の設定を開く") {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        })
+
         root.addView(heading("ユーザー辞書"))
         val dictBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(dictBox)

@@ -57,6 +57,8 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private lateinit var editView: LinearLayout
     private lateinit var emojiView: LinearLayout
     private lateinit var clipList: LinearLayout
+    private var inputPkg: String? = null
+    private var sceneChoice: String? = null // null=自動で選ぶ
     private lateinit var clipStore: ClipStore
     private var clipboard: ClipboardManager? = null
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener { recordClip() }
@@ -203,6 +205,8 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         clearState()
+        inputPkg = info.packageName
+        sceneChoice = null
         if (::panel.isInitialized) closePanel()
         resetSuggest()
         enWord = ""
@@ -1026,7 +1030,21 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         clipList.removeAllViews()
         val pinned = clipStore.pinnedList()
         val hist = clipStore.historyList()
-        if (pinned.isEmpty() && hist.isEmpty()) {
+
+        // 場面: 入力先のアプリ（と画面上部の文字）に合うものを自動で選ぶ。手動で選び直すこともできる。
+        val store = SceneStore.instance(this)
+        val scenes = store.all()
+        var active: Scene? = null
+        if (scenes.isNotEmpty()) {
+            val pk = inputPkg
+            val titles = if (pk != null && pk in store.watchedPackages()) ScreenTitle.read(pk) else emptyList()
+            val auto = store.match(inputPkg, titles)
+            active = if (sceneChoice == null) auto else scenes.firstOrNull { it.id == sceneChoice }
+            clipList.addView(sceneChips(scenes, auto, pal))
+        }
+        val sceneSnips = active?.snippets ?: emptyList()
+
+        if (pinned.isEmpty() && hist.isEmpty() && sceneSnips.isEmpty()) {
             clipList.addView(TextView(this).apply {
                 text = if (Prefs.clipRecord(this@BigKeyService)) "コピーした文がここに並びます。定型文は設定画面からも登録できます" else "履歴の記録は設定でオフになっています"
                 setTextColor(pal.hint)
@@ -1035,13 +1053,57 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             })
             return
         }
+        if (active != null && sceneSnips.isNotEmpty()) {
+            clipList.addView(sectionLabel("場面: ${active.name}", pal))
+            for (t in sceneSnips) addClipRow(t, true, pal, scene = true)
+        }
         if (pinned.isNotEmpty()) {
-            clipList.addView(sectionLabel("定型文", pal))
-            for (s in pinned) addClipRow(s, true, pal)
+            clipList.addView(sectionLabel(if (active != null) "共通の定型文" else "定型文", pal))
+            for (t in pinned) addClipRow(t, true, pal)
         }
         if (hist.isNotEmpty()) {
             clipList.addView(sectionLabel("履歴", pal))
-            for (s in hist) addClipRow(s, false, pal)
+            for (t in hist) addClipRow(t, false, pal)
+        }
+    }
+
+    private fun sceneChips(scenes: List<Scene>, auto: Scene?, pal: Palette): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(8), dp(6), dp(8), dp(2))
+        }
+        fun chip(label: String, selected: Boolean, onTap: () -> Unit) {
+            row.addView(
+                TextView(this).apply {
+                    text = label
+                    textSize = 13f
+                    gravity = Gravity.CENTER
+                    setTextColor(if (selected) pal.accentText else pal.text)
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(if (selected) pal.accent else pal.key)
+                        cornerRadius = dp(16).toFloat()
+                    }
+                    setPadding(dp(14), dp(7), dp(14), dp(7))
+                    setOnClickListener { onTap() }
+                },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(0, 0, dp(6), 0)
+                }
+            )
+        }
+        chip("自動" + (auto?.let { "（${it.name}）" } ?: ""), sceneChoice == null) {
+            sceneChoice = null
+            refreshClipList()
+        }
+        for (sc in scenes) {
+            chip(sc.name, sceneChoice == sc.id) {
+                sceneChoice = sc.id
+                refreshClipList()
+            }
+        }
+        return HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(row)
         }
     }
 
@@ -1052,7 +1114,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         setPadding(dp(14), dp(8), dp(14), dp(2))
     }
 
-    private fun addClipRow(text: String, pinned: Boolean, pal: Palette) {
+    private fun addClipRow(text: String, pinned: Boolean, pal: Palette, scene: Boolean = false) {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1076,7 +1138,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
-        row.addView(
+        if (!scene) row.addView(
             TextView(this).apply {
                 this.text = if (pinned) "登録済み" else "定型文に登録"
                 textSize = 13f

@@ -3,4 +3,6 @@
     <string name="app_name">BigKey</string>
     <string name="ime_name">BigKey 大きなキーのキーボード</string>
     <string name="subtype_ja">日本語（ローマ字入力）</string>
+    <string name="screen_title_name">BigKey 画面の見出し読み取り</string>
+    <string name="screen_title_desc">「場面ごとの定型文」で、トーク相手の名前など画面上部の文字を読み取ります。場面に登録したアプリの、画面の上の部分だけを読み、保存も送信もしません。</string>
 </resources>

@@ -145,7 +145,7 @@ class SettingsActivity : ComponentActivity() {
         root.addView(button("ファイルに書き出す") { exportLauncher.launch("bigkey-backup.json") })
         root.addView(button("ファイルから復元する") { importLauncher.launch(arrayOf("*/*")) })
 
-        root.addView(heading("定型文"))
+        root.addView(heading("共通の定型文（どの場面でも出る）"))
         val snippetBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(snippetBox)
         fun refreshSnippets() {
@@ -198,11 +198,15 @@ class SettingsActivity : ComponentActivity() {
                 .show()
         })
         root.addView(TextView(this).apply {
-            text = "キーボード上の段のクリップボードのアイコンを押すと、定型文が一番上に並びます。タップするとその位置に入力されます。"
+            text = "キーボード上の段のクリップボードのアイコンを押すと、場面の定型文の下に並びます。タップするとその位置に入力されます。"
             textSize = 13f
         })
 
         root.addView(heading("場面ごとの定型文"))
+        root.addView(TextView(this).apply {
+            text = "「場面」を作り、その中に定型文を入れます。場面は、アプリや画面上部の文字で自動で選ばれます。"
+            textSize = 13f
+        })
         val sceneBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(sceneBox)
         lateinit var refreshScenes: () -> Unit
@@ -297,58 +301,57 @@ class SettingsActivity : ComponentActivity() {
             val list = store.all()
             if (list.isEmpty()) {
                 sceneBox.addView(TextView(this).apply {
-                    text = "まだ場面がありません"
+                    text = "まだ場面がありません。下の「場面を追加する」から作ります。"
                     textSize = 13f
                 })
             }
             for (sc in list) {
-                sceneBox.addView(TextView(this).apply {
-                    text = sc.name
-                    textSize = 16f
-                    setPadding(0, 24, 0, 0)
-                })
-                sceneBox.addView(TextView(this).apply {
-                    text = "アプリ: " + appLabel(sc.pkg) + (if (sc.keyword.isNotEmpty()) " / 画面上部に「${sc.keyword}」" else "")
-                    textSize = 12f
-                })
-                for (t in sc.snippets) {
-                    sceneBox.addView(LinearLayout(this).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = android.view.Gravity.CENTER_VERTICAL
-                        addView(
-                            TextView(this@SettingsActivity).apply {
-                                text = t
-                                textSize = 15f
-                                maxLines = 2
-                                ellipsize = android.text.TextUtils.TruncateAt.END
-                            },
-                            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                        )
-                        addView(Button(this@SettingsActivity).apply {
-                            text = "削除"
-                            setOnClickListener {
-                                store.removeSnippet(sc.id, t)
-                                refreshScenes()
-                            }
-                        })
-                    })
+                // 場面の枠（この中に定型文が入る）
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(14), dp(12), dp(14), dp(12))
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(0xFFF4F6FA.toInt())
+                        setStroke(dp(1), 0xFFB8C2D6.toInt())
+                        cornerRadius = dp(12).toFloat()
+                    }
                 }
-                sceneBox.addView(LinearLayout(this).apply {
+                // 見出し: 場面の名前 + 条件 + 編集/削除
+                card.addView(LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    addView(Button(this@SettingsActivity).apply {
-                        text = "定型文を追加"
-                        setOnClickListener { addSceneSnippet(sc.id) }
-                    })
-                    addView(Button(this@SettingsActivity).apply {
-                        text = "場面を編集"
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    addView(
+                        LinearLayout(this@SettingsActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            addView(TextView(this@SettingsActivity).apply {
+                                text = "場面"
+                                textSize = 11f
+                                setTextColor(0xFF5B6B8C.toInt())
+                            })
+                            addView(TextView(this@SettingsActivity).apply {
+                                text = sc.name
+                                textSize = 18f
+                                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                            })
+                            addView(TextView(this@SettingsActivity).apply {
+                                text = "使う場所: " + appLabel(sc.pkg) +
+                                    (if (sc.keyword.isNotEmpty()) "（画面上部に「${sc.keyword}」があるとき）" else "")
+                                textSize = 12f
+                                setTextColor(0xFF555555.toInt())
+                            })
+                        },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    )
+                    addView(Button(this@SettingsActivity, null, android.R.attr.borderlessButtonStyle).apply {
+                        text = "編集"
                         setOnClickListener { editScene(sc.id) }
                     })
-                    addView(Button(this@SettingsActivity).apply {
-                        text = "場面を削除"
+                    addView(Button(this@SettingsActivity, null, android.R.attr.borderlessButtonStyle).apply {
+                        text = "削除"
                         setOnClickListener {
                             android.app.AlertDialog.Builder(this@SettingsActivity)
-                                .setTitle("「${sc.name}」を削除")
-                                .setMessage("この場面の定型文もすべて消えます。")
+                                .setTitle("場面「${sc.name}」を削除")
+                                .setMessage("この場面の定型文${sc.snippets.size}件もすべて消えます。")
                                 .setPositiveButton("削除") { _, _ ->
                                     store.remove(sc.id)
                                     refreshScenes()
@@ -358,6 +361,63 @@ class SettingsActivity : ComponentActivity() {
                         }
                     })
                 })
+                // 場面の中の定型文
+                card.addView(TextView(this).apply {
+                    text = "この場面の定型文（${sc.snippets.size}件）"
+                    textSize = 12f
+                    setTextColor(0xFF5B6B8C.toInt())
+                    setPadding(0, dp(10), 0, dp(4))
+                })
+                if (sc.snippets.isEmpty()) {
+                    card.addView(TextView(this).apply {
+                        text = "まだ定型文がありません"
+                        textSize = 13f
+                        setTextColor(0xFF777777.toInt())
+                        setPadding(dp(12), dp(4), 0, dp(4))
+                    })
+                }
+                for (t in sc.snippets) {
+                    card.addView(
+                        LinearLayout(this).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = android.view.Gravity.CENTER_VERTICAL
+                            setPadding(dp(12), dp(2), dp(4), dp(2))
+                            background = android.graphics.drawable.GradientDrawable().apply {
+                                setColor(0xFFFFFFFF.toInt())
+                                cornerRadius = dp(8).toFloat()
+                            }
+                            addView(
+                                TextView(this@SettingsActivity).apply {
+                                    text = t
+                                    textSize = 15f
+                                    maxLines = 2
+                                    ellipsize = android.text.TextUtils.TruncateAt.END
+                                },
+                                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                            )
+                            addView(Button(this@SettingsActivity, null, android.R.attr.borderlessButtonStyle).apply {
+                                text = "削除"
+                                setOnClickListener {
+                                    store.removeSnippet(sc.id, t)
+                                    refreshScenes()
+                                }
+                            })
+                        },
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            setMargins(dp(8), dp(3), 0, dp(3))
+                        }
+                    )
+                }
+                card.addView(Button(this).apply {
+                    text = "＋ この場面に定型文を追加"
+                    setOnClickListener { addSceneSnippet(sc.id) }
+                })
+                sceneBox.addView(
+                    card,
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        setMargins(0, dp(10), 0, dp(4))
+                    }
+                )
             }
         }
         refreshScenes()

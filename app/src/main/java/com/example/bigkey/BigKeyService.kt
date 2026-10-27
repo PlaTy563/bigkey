@@ -1037,10 +1037,22 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         var active: Scene? = null
         if (scenes.isNotEmpty()) {
             val pk = inputPkg
-            val titles = if (pk != null && pk in store.watchedPackages()) ScreenTitle.read(pk) else emptyList()
+            val titles: List<String> = if (pk != null && pk in store.watchedPackages()) ScreenTitle.read(pk) else emptyList()
             val auto = store.match(inputPkg, titles)
             active = if (sceneChoice == null) auto else scenes.firstOrNull { it.id == sceneChoice }
             clipList.addView(sceneChips(scenes, auto, pal))
+            if (pk != null && pk in store.watchedPackages()) {
+                clipList.addView(TextView(this).apply {
+                    text = when {
+                        !ScreenTitle.isRunning() -> "画面上部: 読み取れません（端末のユーザー補助で「BigKey 画面の見出し読み取り」をオンにしてください）"
+                        titles.isEmpty() -> "画面上部: 文字を読み取れていません"
+                        else -> "画面上部: " + titles.joinToString(" / ").let { if (it.length > 70) it.take(70) + "…" else it }
+                    }
+                    textSize = 11f
+                    setTextColor(pal.hint)
+                    setPadding(dp(14), dp(2), dp(14), dp(2))
+                })
+            }
         }
         val sceneSnips = active?.snippets ?: emptyList()
 

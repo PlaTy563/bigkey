@@ -501,7 +501,7 @@ class SettingsActivity : ComponentActivity() {
         val toolBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(toolBox)
         val toolNames = mapOf(
-            "bw" to "Bitwarden（鍵）", "clip" to "クリップボード", "emoji" to "絵文字", "mic" to "音声入力",
+            "bw" to "Bitwarden（鍵）", "clip" to "クリップボード", "emoji" to "絵文字", "settings" to "設定（歯車）", "mic" to "音声入力",
             "select" to "範囲選択", "left" to "カーソル左", "right" to "カーソル右", "spacer" to "—— ここから右に寄せる ——"
         )
         fun refreshToolbar() {

@@ -128,6 +128,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         val rightButton = IconButton(this, IconButton.Icon.RIGHT, "カーソルを右へ").apply { repeatAction = { onCursor(1) } }
         val emojiButton = IconButton(this, IconButton.Icon.EMOJI, "絵文字").apply { setOnClickListener { openPanel(true) } }
         val voiceButton = IconButton(this, IconButton.Icon.MIC, "音声入力").apply { setOnClickListener { startVoice() } }
+        val settingsButton = IconButton(this, IconButton.Icon.GEAR, "設定").apply { setOnClickListener { openSettings() } }
         selectButton = IconButton(this, IconButton.Icon.SELECT, "範囲選択").apply {
             setOnClickListener { setSelectMode(!selectMode) }
         }
@@ -135,6 +136,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         toolViews["clip"] = editButton
         toolViews["emoji"] = emojiButton
         toolViews["mic"] = voiceButton
+        toolViews["settings"] = settingsButton
         toolViews["select"] = selectButton
         toolViews["left"] = leftButton
         toolViews["right"] = rightButton
@@ -972,6 +974,18 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
                 },
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
             )
+        }
+    }
+
+    // ---- 設定画面 ----
+
+    private fun openSettings() {
+        currentInputConnection?.let { if (japanese) commitAsIs(it) }
+        val i = Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            startActivity(i)
+        } catch (_: Exception) {
+            android.widget.Toast.makeText(this, "設定を開けませんでした", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 

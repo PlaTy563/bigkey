@@ -98,6 +98,21 @@ class ConverterTest {
     }
 
     @Test
+    fun liveTextConvertsHomophoneVerbStem() {
+        // 言っ（コスト0）と行っ（コスト8）のように語幹のコスト差が小さい同音語でも、
+        // 打ち終わった文節は最良候補に変換される（以前は文全体がかなのままだった）
+        assertEquals("言ってほしかった", converter.liveText("いってほしかった", null))
+        assertEquals("感じを変換する", converter.liveText("かんじをへんかんする", null))
+    }
+
+    @Test
+    fun liveTextHoldsLastSegment() {
+        // 打ちかけの最後の文節は変換しない
+        assertEquals("しらべる", converter.liveText("しらべる", null))
+        assertEquals("かんじ", converter.liveText("かんじ", null))
+    }
+
+    @Test
     fun predictReturnsReadingAndText() {
         val list = converter.predict("ありが", 8, null)
         assertTrue(list.isNotEmpty())

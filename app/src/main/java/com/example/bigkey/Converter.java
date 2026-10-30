@@ -566,7 +566,10 @@ public final class Converter {
         return result;
     }
 
-    /** 差し替え候補に出さない単語: ひらがな1〜2文字の語（助詞など）を、カタカナ・数字・別の漢字に替えるもの。 */
+    /**
+     * 差し替え候補に出さない単語: ひらがな1〜2文字の語（助詞など）を、カタカナ・数字・別の漢字に替えるもの。
+     * ただし送り仮名が一致するもの（動詞・形容詞などの語幹）は出す。
+     */
     private static boolean isNoiseAlt(Node cur, Node alt) {
         int len = cur.end - cur.start;
         if (len > 2) {
@@ -584,7 +587,12 @@ public final class Converter {
         }
         char a = alt.surface.charAt(0);
         boolean altKana = a >= 'ぁ' && a <= 'ゖ';
-        return !altKana;
+        if (altKana) {
+            return false;
+        }
+        // 送り仮名が一致する差し替え（とっ→撮っ、あれ→荒れ、すぎ→過ぎ など）は候補に出す
+        char last = cur.surface.charAt(cur.surface.length() - 1);
+        return alt.surface.charAt(alt.surface.length() - 1) != last;
     }
 
     private int segmentCost(Node before, Node node, Node after) {

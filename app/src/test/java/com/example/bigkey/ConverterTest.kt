@@ -86,6 +86,13 @@ class ConverterTest {
     }
 
     @Test
+    fun okuriganaAltCandidatesAreShown() {
+        // 送り仮名が一致する差し替えは、短いかなの語でも候補に出る（以前は出なかった）
+        assertTrue(texts("あれたしょうがっこうだ", 6).contains("荒れた小学校だ"))
+        assertTrue(texts("たべすぎておなかがいたい", 6).contains("食べ過ぎてお腹が痛い"))
+    }
+
+    @Test
     fun liveTextConvertsConfidentPart() {
         assertEquals("今日はいい天気ですね", converter.liveText("きょうはいいてんきですね", null))
     }

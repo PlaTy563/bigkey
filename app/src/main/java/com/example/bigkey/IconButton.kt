@@ -9,7 +9,7 @@ import android.view.View
 
 /** 線で描いたアイコンのボタン。画像ファイルを使わず、図形で描く。 */
 class IconButton(context: Context, private val icon: Icon, description: String) : View(context) {
-    enum class Icon { LEFT, RIGHT, CLIP, EMOJI, MIC, KEY, SELECT, DOWN }
+    enum class Icon { LEFT, RIGHT, CLIP, EMOJI, MIC, KEY, SELECT, DOWN, GEAR }
 
     private val pal = Theme.of(context)
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = pal.special }
@@ -58,6 +58,7 @@ class IconButton(context: Context, private val icon: Icon, description: String) 
             Icon.KEY -> drawKey(canvas, cx, cy, s)
             Icon.SELECT -> drawSelect(canvas, cx, cy, s)
             Icon.DOWN -> drawDown(canvas, cx, cy, s)
+            Icon.GEAR -> drawGear(canvas, cx, cy, s)
         }
     }
 
@@ -148,6 +149,18 @@ class IconButton(context: Context, private val icon: Icon, description: String) 
         c.drawArc(rect, 20f, 140f, false, line)
         c.drawLine(x, y + s * 0.65f, x, y + s * 1.1f, line)
         c.drawLine(x - s * 0.5f, y + s * 1.1f, x + s * 0.5f, y + s * 1.1f, line)
+    }
+
+    private fun drawGear(c: Canvas, x: Float, y: Float, s: Float) {
+        // 歯車: 外側に8本の歯、内側の円と中心の穴
+        for (i in 0 until 8) {
+            val a = Math.toRadians((i * 45).toDouble())
+            val cos = kotlin.math.cos(a).toFloat()
+            val sin = kotlin.math.sin(a).toFloat()
+            c.drawLine(x + cos * s * 0.72f, y + sin * s * 0.72f, x + cos * s * 1.22f, y + sin * s * 1.22f, line)
+        }
+        c.drawCircle(x, y, s * 0.88f, line)
+        c.drawCircle(x, y, s * 0.32f, line)
     }
 
     private fun drawKey(c: Canvas, x: Float, y: Float, s: Float) {

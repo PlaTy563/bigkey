@@ -17,7 +17,7 @@ object Prefs {
     const val TOOLBAR_ORDER = "toolbar_order"
     const val TOOLBAR_HIDDEN = "toolbar_hidden"
 
-    val TOOLBAR_ALL = listOf("bw", "clip", "emoji", "mic", "spacer", "select", "left", "right")
+    val TOOLBAR_ALL = listOf("bw", "clip", "emoji", "settings", "mic", "spacer", "select", "left", "right")
 
     const val DEFAULT_HEIGHT = 64
     const val MIN_HEIGHT = 44
@@ -47,8 +47,12 @@ object Prefs {
         return saved + TOOLBAR_ALL.filter { it !in saved }
     }
 
-    fun toolbarHidden(ctx: Context): Set<String> =
-        (get(ctx).getString(TOOLBAR_HIDDEN, "") ?: "").split(",").filter { it in TOOLBAR_ALL && it != "spacer" }.toSet()
+    fun toolbarHidden(ctx: Context): Set<String> {
+        val sp = get(ctx)
+        // 未設定のときは音声ボタンを隠す（設定ボタンに置き換えたため。設定から戻せる）
+        if (!sp.contains(TOOLBAR_HIDDEN)) return setOf("mic")
+        return (sp.getString(TOOLBAR_HIDDEN, "") ?: "").split(",").filter { it in TOOLBAR_ALL && it != "spacer" }.toSet()
+    }
 
     fun tapLearn(ctx: Context): Boolean = get(ctx).getBoolean(TAP_LEARN, true)
 

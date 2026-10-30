@@ -41,6 +41,11 @@ jobs:
             echo "KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
           fi
 
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          gradle testDebugUnitTest --stacktrace 2>&1 | tee "$RUNNER_TEMP/test.log"
+
       - name: Build debug and release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -50,11 +55,22 @@ jobs:
           set -o pipefail
           gradle assembleDebug assembleRelease --stacktrace 2>&1 | tee "$RUNNER_TEMP/build.log"
 
-      # ログを外から読めない環境向け: 失敗時にコンパイルエラーを注釈として残す
+      # ログを外から読めない環境向け: 失敗時にコンパイルエラーとテスト結果を注釈として残す
       - name: Show compile errors as annotations
         if: failure()
         run: |
-          grep -E "^e: |error:|What went wrong" -A2 "$RUNNER_TEMP/build.log" | head -60 | while IFS= read -r l; do echo "::error::${l//%/%25}"; done
+          for f in "$RUNNER_TEMP/build.log" "$RUNNER_TEMP/test.log"; do
+            [ -f "$f" ] && grep -E "^e: |error:|What went wrong" -A2 "$f" || true
+          done | head -60 | while IFS= read -r l; do echo "::error::${l//%/%25}"; done
+          grep -h -o 'testcase name="[^"]*"[^>]*>' app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null | head -5 || true
+          grep -h -o '<failure message="[^"]*"' app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null | head -20 | while IFS= read -r l; do echo "::error::${l//%/%25}"; done
+
+      # ダウンロード後に版が分かるよう、APKにバージョン入りの名前を付ける
+      - name: Rename APKs with version
+        run: |
+          version=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          mv app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/bigkey-v${version}.apk"
+          mv app/build/outputs/apk/debug/app-debug.apk "app/build/outputs/apk/debug/bigkey-v${version}-debug.apk"
 
       # artifactストレージ枠を使い切らないよう、保持期間は3日にする
       - uses: actions/upload-artifact@v4
@@ -68,6 +84,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          generate_release_notes: true
           files: app/build/outputs/apk/*/*.apk
 
       # タグをpushできない場合の経路:
@@ -85,4 +102,5 @@ jobs:
           tag_name: v${{ steps.ver.outputs.version }}
           target_commitish: ${{ github.sha }}
           name: v${{ steps.ver.outputs.version }}
+          generate_release_notes: true
           files: app/build/outputs/apk/*/*.apk

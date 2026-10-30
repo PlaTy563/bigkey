@@ -21,11 +21,16 @@ QWERTYのローマ字入力で日本語を打てる、キーを大きくしたAn
 ## 配布
 
 `v*` のタグをpushすると、APKがGitHub Releaseに添付される。Releaseはartifactの保存枠を消費しない。
+添付されるAPKは `bigkey-v<バージョン>.apk`（デバッグ版は `bigkey-v<バージョン>-debug.apk`）という名前で、リリースノートはGitHubが自動生成する。
 
 ```
 git tag v0.1.0
 git push origin v0.1.0
 ```
+
+## テスト
+
+変換コア（`Romaji` / `Composer` / `Converter`）の単体テストが `app/src/test` にある。`Converter` のテストは実際の辞書（assets）を使って、代表的な読みの変換結果を確認する。CI（GitHub Actions）でもビルド前に `testDebugUnitTest` を実行する。
 
 ## 辞書・変換
 

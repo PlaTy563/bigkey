@@ -44,6 +44,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private lateinit var candGrid: LinearLayout
     private lateinit var enDict: EnglishDict
     private var selectMode = false // オンのあいだ、カーソルの矢印で範囲を選ぶ
+    private var selectAnchor = -1 // 範囲選択の固定側の端（単語単位で広げるときの起点）
     private var enWord = "" // 英字入力中の、打ちかけの単語
     private var enSug: List<String> = emptyList()
     private var suggestEn = false
@@ -124,8 +125,8 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         }
         bwButton = IconButton(this, IconButton.Icon.KEY, "Bitwarden").apply { setOnClickListener { launchBitwarden() } }
         editButton = IconButton(this, IconButton.Icon.CLIP, "クリップボード").apply { setOnClickListener { openPanel(false) } }
-        val leftButton = IconButton(this, IconButton.Icon.LEFT, "カーソルを左へ").apply { repeatAction = { onCursor(-1) } }
-        val rightButton = IconButton(this, IconButton.Icon.RIGHT, "カーソルを右へ").apply { repeatAction = { onCursor(1) } }
+        val leftButton = IconButton(this, IconButton.Icon.LEFT, "カーソルを左へ").apply { repeatAction = { t -> onCursorKey(-1, t) } }
+        val rightButton = IconButton(this, IconButton.Icon.RIGHT, "カーソルを右へ").apply { repeatAction = { t -> onCursorKey(1, t) } }
         val emojiButton = IconButton(this, IconButton.Icon.EMOJI, "絵文字").apply { setOnClickListener { openPanel(true) } }
         val voiceButton = IconButton(this, IconButton.Icon.MIC, "音声入力").apply { setOnClickListener { startVoice() } }
         val settingsButton = IconButton(this, IconButton.Icon.GEAR, "設定").apply { setOnClickListener { openSettings() } }
@@ -715,6 +716,62 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private fun setSelectMode(on: Boolean) {
         selectMode = on
         if (::selectButton.isInitialized) selectButton.active = on
+        if (on) {
+            // 入力中でなければ、カーソル位置の単語をそのまま選ぶ（矢印で位置合わせする手間をなくす）
+            val composing = japanese && (candIndex >= 0 || !composer.isEmpty())
+            if (!composing) selectWordAtCursor()
+        } else {
+            selectAnchor = -1
+        }
+    }
+
+    /** カーソル位置の単語（同じ種類の文字の連なり）を範囲選択する。 */
+    private fun selectWordAtCursor() {
+        val ic = currentInputConnection ?: return
+        val et = try {
+            ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+        } catch (_: Exception) {
+            null
+        } ?: return
+        val text = et.text?.toString() ?: return
+        if (et.selectionStart < 0) return
+        val range = WordBoundary.wordRangeAt(text, et.selectionStart) ?: return
+        selectAnchor = range.first
+        ic.setSelection(range.first, range.second)
+    }
+
+    /** 矢印ボタン用: 選択モードで長押しが続いたら、単語単位で範囲を広げる。 */
+    private fun onCursorKey(delta: Int, ticks: Int) {
+        if (selectMode && ticks >= 6 && extendSelectionByWord(delta)) return
+        onCursor(delta)
+    }
+
+    /** 選択範囲の動く側の端を、次の単語の境界まで進める。 */
+    private fun extendSelectionByWord(delta: Int): Boolean {
+        val ic = currentInputConnection ?: return false
+        val et = try {
+            ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+        } catch (_: Exception) {
+            null
+        } ?: return false
+        val text = et.text?.toString() ?: return false
+        val s = et.selectionStart
+        val e = et.selectionEnd
+        if (s < 0 || e < 0) return false
+        val anchor = if (selectAnchor >= 0) selectAnchor else s
+        val active = when {
+            s == anchor && e != anchor -> e
+            e == anchor && s != anchor -> s
+            else -> e
+        }
+        val next = if (delta > 0) {
+            WordBoundary.nextWordEnd(text, active)
+        } else {
+            WordBoundary.prevWordStart(text, active)
+        }
+        if (next == active) return false
+        ic.setSelection(minOf(anchor, next), maxOf(anchor, next))
+        return true
     }
 
     // ---- 候補の一覧 ----
@@ -816,6 +873,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             orientation = LinearLayout.HORIZONTAL
             val items = listOf<Pair<String, () -> Unit>>(
                 "閉じる" to { closePanel() },
+                "単語" to { selectWordAtCursor() },
                 "全選択" to { editAction(android.R.id.selectAll) },
                 "コピー" to { editAction(android.R.id.copy) },
                 "切取" to { editAction(android.R.id.cut) },

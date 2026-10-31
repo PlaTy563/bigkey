@@ -21,8 +21,8 @@ android {
         applicationId = "com.example.bigkey"
         minSdk = 26
         targetSdk = 34
-        versionCode = 19
-        versionName = "0.12.2"
+        versionCode = 20
+        versionName = "0.12.3"
     }
 
     signingConfigs {
@@ -77,4 +77,5 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-ktx:1.9.2")
     implementation("androidx.autofill:autofill:1.1.0")
+    testImplementation("junit:junit:4.13.2")
 }

@@ -68,8 +68,11 @@ public final class Converter {
     }
 
     private static final int ALT_MAX_DELTA = 3500;
-    private static final int LIVE_CONFIDENT_DELTA = 1000;
-    private static final int LIVE_HOLD = 2;
+    // ライブ変換で「確信あり」とみなす候補コスト差。Mozc辞書では動詞の語幹のコストが
+    // ほぼ0同士（言っ=0 / 行っ=8）で、同音の語幹は差が数十しか開かない。差を大きく
+    // 要求すると同音語を含む文が丸ごと変換されずに残るため、小さく取る。
+    // 評価文82文のライブ表示一致: しきい値1000で27件 → 50で50件。
+    private static final int LIVE_CONFIDENT_DELTA = 50;
     private static final int PAIR_BONUS = 1500;
     private static final int USER_WORD_COST = 1500;
     private static final int PREDICT_LEN_PENALTY = 350;
@@ -482,7 +485,7 @@ public final class Converter {
                 Node nd = path.get(k);
                 String rd = reading.substring(nd.start, nd.end);
                 boolean confident = minDelta[k] >= LIVE_CONFIDENT_DELTA;
-                boolean tailHold = nd.end > n - LIVE_HOLD; // 末尾の打ちかけの部分は、まだ変換しない
+                boolean tailHold = nd.end == n; // 打ちかけの最後の文節だけ、まだ変換しない
                 sb.append(isAllKana(nd.surface) || (confident && !tailHold) ? nd.surface : rd);
             }
             out.clear();
@@ -566,7 +569,10 @@ public final class Converter {
         return result;
     }
 
-    /** 差し替え候補に出さない単語: ひらがな1〜2文字の語（助詞など）を、カタカナ・数字・別の漢字に替えるもの。 */
+    /**
+     * 差し替え候補に出さない単語: ひらがな1〜2文字の語（助詞など）を、カタカナ・数字・別の漢字に替えるもの。
+     * ただし送り仮名が一致するもの（動詞・形容詞などの語幹）は出す。
+     */
     private static boolean isNoiseAlt(Node cur, Node alt) {
         int len = cur.end - cur.start;
         if (len > 2) {
@@ -584,7 +590,12 @@ public final class Converter {
         }
         char a = alt.surface.charAt(0);
         boolean altKana = a >= 'ぁ' && a <= 'ゖ';
-        return !altKana;
+        if (altKana) {
+            return false;
+        }
+        // 送り仮名が一致する差し替え（とっ→撮っ、あれ→荒れ、すぎ→過ぎ など）は候補に出す
+        char last = cur.surface.charAt(cur.surface.length() - 1);
+        return alt.surface.charAt(alt.surface.length() - 1) != last;
     }
 
     private int segmentCost(Node before, Node node, Node after) {

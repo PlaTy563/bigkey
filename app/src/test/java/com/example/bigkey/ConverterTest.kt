@@ -86,8 +86,30 @@ class ConverterTest {
     }
 
     @Test
+    fun okuriganaAltCandidatesAreShown() {
+        // 送り仮名が一致する差し替えは、短いかなの語でも候補に出る（以前は出なかった）
+        assertTrue(texts("あれたしょうがっこうだ", 6).contains("荒れた小学校だ"))
+        assertTrue(texts("たべすぎておなかがいたい", 6).contains("食べ過ぎてお腹が痛い"))
+    }
+
+    @Test
     fun liveTextConvertsConfidentPart() {
         assertEquals("今日はいい天気ですね", converter.liveText("きょうはいいてんきですね", null))
+    }
+
+    @Test
+    fun liveTextConvertsHomophoneVerbStem() {
+        // 言っ（コスト0）と行っ（コスト8）のように語幹のコスト差が小さい同音語でも、
+        // 打ち終わった文節は最良候補に変換される（以前は文全体がかなのままだった）
+        assertEquals("言ってほしかった", converter.liveText("いってほしかった", null))
+        assertEquals("感じを変換する", converter.liveText("かんじをへんかんする", null))
+    }
+
+    @Test
+    fun liveTextHoldsLastSegment() {
+        // 打ちかけの最後の文節は変換しない
+        assertEquals("しらべる", converter.liveText("しらべる", null))
+        assertEquals("かんじ", converter.liveText("かんじ", null))
     }
 
     @Test

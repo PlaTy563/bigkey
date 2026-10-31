@@ -62,12 +62,15 @@ class IconButton(context: Context, private val icon: Icon, description: String) 
         }
     }
 
-    /** 押し続けると繰り返し実行する動作（カーソル移動用）。設定すると、押した瞬間に1回実行する。 */
-    var repeatAction: (() -> Unit)? = null
+    /** 押し続けると繰り返し実行する動作（カーソル移動用）。設定すると、押した瞬間に1回実行する。
+     *  引数は繰り返しの回数（押した瞬間が0、長押しの繰り返しで1,2,…と増える）。 */
+    var repeatAction: ((Int) -> Unit)? = null
+    private var repeatTicks = 0
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private val repeater = object : Runnable {
         override fun run() {
-            repeatAction?.invoke()
+            repeatTicks++
+            repeatAction?.invoke(repeatTicks)
             handler.postDelayed(this, 60)
         }
     }
@@ -77,7 +80,8 @@ class IconButton(context: Context, private val icon: Icon, description: String) 
         when (e.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN -> {
                 isPressed = true
-                action()
+                repeatTicks = 0
+                action(0)
                 handler.postDelayed(repeater, 400)
             }
             android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {

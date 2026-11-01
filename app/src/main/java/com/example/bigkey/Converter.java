@@ -133,6 +133,12 @@ public final class Converter {
         this.userMaxLen = max;
     }
 
+    private PairStats pairStats; // 単語の並びの統計（任意）
+
+    public void setPairStats(byte[] data) {
+        this.pairStats = PairStats.load(data);
+    }
+
     private byte[] predictable; // 品詞idごとに、予測変換に使ってよいなら1
 
     public void setPredictable(byte[] flags) {
@@ -404,8 +410,16 @@ public final class Converter {
                 Node bestPrev = null;
                 for (Node prev : prevs) {
                     int c = prev.best + connCost(prev.rid, node.lid);
-                    if (bias != null && prev != bos && !prev.surface.isEmpty()) {
-                        c -= Math.min(bias.pair(prev.surface, node.surface), BIAS_MAX_COUNT) * PAIR_BONUS;
+                    if (prev == bos && pairStats != null) {
+                        c -= pairStats.bonus("\u0000", node.surface);
+                    }
+                    if (prev != bos && !prev.surface.isEmpty()) {
+                        if (bias != null) {
+                            c -= Math.min(bias.pair(prev.surface, node.surface), BIAS_MAX_COUNT) * PAIR_BONUS;
+                        }
+                        if (pairStats != null) {
+                            c -= pairStats.bonus(prev.surface, node.surface);
+                        }
                     }
                     if (c < bestCost) {
                         bestCost = c;

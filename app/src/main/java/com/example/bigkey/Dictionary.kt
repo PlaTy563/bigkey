@@ -52,6 +52,10 @@ class Dictionary(context: Context) {
                     conv.setPredictable(app.assets.open("pos.bin").use { it.readBytes() })
                 } catch (_: Exception) {
                 }
+                try {
+                    conv.setPairStats(app.assets.open("pairs.bin").use { it.readBytes() })
+                } catch (_: Exception) {
+                }
                 converter = conv
             } catch (_: Throwable) {
                 // 辞書がなくても、ひらがな・カタカナ入力は使える

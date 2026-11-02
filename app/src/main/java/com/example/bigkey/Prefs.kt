@@ -15,6 +15,11 @@ object Prefs {
     const val TAP_DX = "tap_dx"
     const val TAP_DY = "tap_dy"
     const val TOOLBAR_ORDER = "toolbar_order"
+    const val THEME_MODE = "theme_mode"
+    const val THEME_AUTO = "auto"
+    const val THEME_DARK = "dark"
+    const val THEME_LIGHT = "light"
+    const val THEME_BLUEPRINT = "blueprint"
     const val TOOLBAR_HIDDEN = "toolbar_hidden"
 
     val TOOLBAR_ALL = listOf("bw", "clip", "emoji", "settings", "mic", "spacer", "select", "left", "right")
@@ -25,6 +30,8 @@ object Prefs {
 
     fun get(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences("bigkey_prefs", Context.MODE_PRIVATE)
+
+    fun themeMode(ctx: Context): String = get(ctx).getString(THEME_MODE, THEME_AUTO) ?: THEME_AUTO
 
     fun keyHeightDp(ctx: Context): Int =
         get(ctx).getInt(KEY_HEIGHT_DP, DEFAULT_HEIGHT).coerceIn(MIN_HEIGHT, MAX_HEIGHT)

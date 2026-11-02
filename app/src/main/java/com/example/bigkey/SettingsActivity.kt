@@ -130,6 +130,36 @@ class SettingsActivity : ComponentActivity() {
             })
         })
 
+        root.addView(heading("テーマ"))
+        val themeOptions = listOf(
+            Prefs.THEME_AUTO to "自動（端末に合わせる）",
+            Prefs.THEME_DARK to "ダーク",
+            Prefs.THEME_LIGHT to "ライト",
+            Prefs.THEME_BLUEPRINT to "ブループリント"
+        )
+        val themeButtons = ArrayList<Button>()
+        fun refreshThemeButtons() {
+            val cur = Prefs.themeMode(this@SettingsActivity)
+            for ((i, b) in themeButtons.withIndex()) {
+                val (value, label) = themeOptions[i]
+                b.text = (if (value == cur) "● " else "○ ") + label
+            }
+        }
+        val themeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for ((value, label) in themeOptions) {
+            val b = Button(this).apply {
+                text = label
+                setOnClickListener {
+                    sp.edit().putString(Prefs.THEME_MODE, value).apply()
+                    refreshThemeButtons()
+                }
+            }
+            themeButtons.add(b)
+            themeRow.addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        refreshThemeButtons()
+        root.addView(themeRow)
+
         root.addView(switchRow("数字の段を常に表示する", Prefs.SHOW_NUMBER_ROW, false))
         root.addView(switchRow("誤タップ補正（ローマ字として続かないキーを選びにくくする）", Prefs.HIT_CORRECTION, true))
         root.addView(switchRow("キーを押したときに振動する", Prefs.HAPTIC, true))

@@ -94,6 +94,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private val keyPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
         typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
@@ -244,8 +245,8 @@ class KeyboardView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(pal.bg)
-        val gapX = dp(3f)
-        val gapY = dp(4.5f)
+        val gapX = dp(2.5f)
+        val gapY = dp(3.5f)
         val radius = dp(12f)
         val rowH = rowHeight()
         val pressedKeys = pressed.values.toSet()
@@ -269,6 +270,11 @@ class KeyboardView(context: Context) : View(context) {
                 }
                 keyPaint.color = fill
                 canvas.drawRoundRect(tmp, radius, radius, keyPaint)
+                if (pal.stroke != 0) {
+                    borderPaint.color = pal.stroke
+                    borderPaint.strokeWidth = dp(pal.strokeWidthDp)
+                    canvas.drawRoundRect(tmp, radius, radius, borderPaint)
+                }
 
                 val cx = tmp.centerX()
                 val cy = tmp.centerY()

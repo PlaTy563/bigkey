@@ -26,6 +26,11 @@ class ScreenTitle : AccessibilityService() {
 
         fun isRunning(): Boolean = instance != null
 
+        /** 場面の対象アプリが変わったら、読み取り範囲の設定を反映し直す。 */
+        fun refreshScope() {
+            instance?.applyScope()
+        }
+
         /** 指定アプリの画面上部の文字を、今この場で読み直して返す。読めなければ直近の結果を返す。 */
         fun read(pkg: String?): List<String> {
             val svc = instance
@@ -41,6 +46,23 @@ class ScreenTitle : AccessibilityService() {
 
     override fun onServiceConnected() {
         instance = this
+        applyScope()
+    }
+
+    /**
+     * 画面を読む対象を、場面に登録されたアプリだけに絞る。
+     * ユーザー補助の対象範囲を最小にすることで、関係ないアプリ（決済アプリ等）に
+     * 「画面を読めるサービス」として影響しないようにする。
+     * 対象が空のときは自アプリだけを指定する（空配列は「全アプリ」の意味になるため）。
+     */
+    fun applyScope() {
+        try {
+            val watched = SceneStore.instance(this).watchedPackages()
+            val info = serviceInfo ?: return
+            info.packageNames = if (watched.isEmpty()) arrayOf(packageName) else watched.toTypedArray()
+            serviceInfo = info
+        } catch (_: Exception) {
+        }
     }
 
     override fun onDestroy() {

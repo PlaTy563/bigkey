@@ -184,5 +184,7 @@ class SceneStore private constructor(private val file: File) {
             file.writeText(toJson().toString(), Charsets.UTF_8)
         } catch (_: Exception) {
         }
+        // 対象アプリが変わったので、画面読み取りの範囲を絞り直す
+        ScreenTitle.refreshScope()
     }
 }

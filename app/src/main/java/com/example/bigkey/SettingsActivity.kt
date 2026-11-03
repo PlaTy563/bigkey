@@ -62,6 +62,14 @@ class SettingsActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 自動OFFの通知を出すための許可（Android 13以降）
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 3)
+        }
         val sp = Prefs.get(this)
         val pad = dp(16)
 
@@ -455,7 +463,7 @@ class SettingsActivity : ComponentActivity() {
         root.addView(TextView(this).apply {
             text = "場面に合うと、クリップボードのアイコンを開いたとき、その場面の定型文が一番上に並びます。上の「自動」「場面の名前」のボタンで手動でも切り替えられます。\n" +
                 "アプリだけを指定した場面は、キーボードだけで判定できます。LINEのトーク相手など、画面上部の文字で絞るには、端末の「ユーザー補助」で「BigKey 画面の見出し読み取り」をオンにしてください。読み取るのは、場面に登録したアプリの画面の上の部分だけで、保存も送信もしません。読み取りの対象も、場面に登録したアプリだけに絞ってあります。\n" +
-                "ただし PayPay などの決済アプリには、ユーザー補助が有効なだけで利用制限がかかるものがあります。その場合は、このサービスをオフにしてください。"
+                "PayPayを開くと、このサービスは自動でオフになります（PayPayはユーザー補助が有効なだけで利用制限がかかるため。通知が届きます）。使い終わったら、通知をタップするかユーザー補助の設定からオンに戻してください。"
             textSize = 13f
         })
         root.addView(button("ユーザー補助の設定を開く") {

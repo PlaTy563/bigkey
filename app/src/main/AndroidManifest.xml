@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- PayPay検知で自動OFFしたことを通知で知らせるため -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <queries>
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />

@@ -1,7 +1,16 @@
 package com.example.bigkey
 
 import android.accessibilityservice.AccessibilityService
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
 import android.graphics.Rect
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
@@ -31,6 +40,11 @@ class ScreenTitle : AccessibilityService() {
             instance?.applyScope()
         }
 
+        /** 前面に来たらこのサービスを自動でオフにする決済アプリ（PayPay）。 */
+        private const val PAYPAY_PACKAGE = "jp.ne.paypay.android.app"
+        private const val AUTO_OFF_CHANNEL_ID = "paypay_auto_off"
+        private const val AUTO_OFF_NOTIFICATION_ID = 2001
+
         /** 指定アプリの画面上部の文字を、今この場で読み直して返す。読めなければ直近の結果を返す。 */
         fun read(pkg: String?): List<String> {
             val svc = instance
@@ -43,6 +57,10 @@ class ScreenTitle : AccessibilityService() {
     }
 
     private var lastEventAt = 0L
+    private val handler = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var autoOffTriggered = false
 
     override fun onServiceConnected() {
         instance = this
@@ -51,18 +69,67 @@ class ScreenTitle : AccessibilityService() {
 
     /**
      * 画面を読む対象を、場面に登録されたアプリだけに絞る。
-     * ユーザー補助の対象範囲を最小にすることで、関係ないアプリ（決済アプリ等）に
-     * 「画面を読めるサービス」として影響しないようにする。
+     * ただし PayPay だけは検知専用に対象へ加える：PayPay は有効なユーザー補助
+     * サービス自体を制限対象にするため（packageNames の絞り込みでは回避できない
+     * ことを実機で確認済み）、前面に来たらこのサービス自身をオフにして回避する。
+     * PayPay の中身は読まない（パッケージ名の一致だけを見る）。
      * 対象が空のときは自アプリだけを指定する（空配列は「全アプリ」の意味になるため）。
      */
     fun applyScope() {
         try {
             val watched = SceneStore.instance(this).watchedPackages()
             val info = serviceInfo ?: return
-            info.packageNames = if (watched.isEmpty()) arrayOf(packageName) else watched.toTypedArray()
+            val targets = watched + PAYPAY_PACKAGE
+            info.packageNames =
+                if (targets.isEmpty()) arrayOf(packageName) else targets.toTypedArray()
             serviceInfo = info
         } catch (_: Exception) {
         }
+    }
+
+    /**
+     * PayPay の前面を検知したときの自動OFF。通知を出してから少し遅らせて
+     * disableSelf() する。オフになれば PayPay 側の制限は自動で解除される。
+     * 戻すのは Android の仕様上ユーザーの手動操作が必要。
+     */
+    private fun onPayPayForeground() {
+        if (autoOffTriggered) return
+        autoOffTriggered = true
+        try {
+            val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nm.createNotificationChannel(
+                    NotificationChannel(
+                        AUTO_OFF_CHANNEL_ID,
+                        "PayPay自動OFFのお知らせ",
+                        NotificationManager.IMPORTANCE_DEFAULT
+                    )
+                )
+            }
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val pending = PendingIntent.getActivity(
+                this, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this, AUTO_OFF_CHANNEL_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(this)
+            }
+            val notification = builder
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("BigKey 見出し読み取りをオフにしました")
+                .setContentText("PayPayを開いたため、ユーザー補助を自動でオフにしました。使い終わったらタップしてオンに戻してください。")
+                .setContentIntent(pending)
+                .setAutoCancel(true)
+                .build()
+            nm.notify(AUTO_OFF_NOTIFICATION_ID, notification)
+        } catch (_: Exception) {
+            // 通知が出せなくても自動OFF自体は続行する
+        }
+        handler.postDelayed({ disableSelf() }, 500)
     }
 
     override fun onDestroy() {
@@ -79,6 +146,13 @@ class ScreenTitle : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: return
+        // PayPay が前面に来たら、自分をオフにして利用制限を回避する
+        if (pkg == PAYPAY_PACKAGE &&
+            event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        ) {
+            onPayPayForeground()
+            return
+        }
         if (pkg !in SceneStore.instance(this).watchedPackages()) return
         val now = System.currentTimeMillis()
         if (now - lastEventAt < 300) return

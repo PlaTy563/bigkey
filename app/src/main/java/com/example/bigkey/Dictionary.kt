@@ -56,7 +56,12 @@ class Dictionary(context: Context) {
                     conv.setPairStats(app.assets.open("pairs.bin").use { it.readBytes() })
                 } catch (_: Exception) {
                 }
+                // 変換自体は索引なしでも使えるので、先に公開してから索引を作る
                 converter = conv
+                try {
+                    conv.buildReverseIndex()
+                } catch (_: Throwable) {
+                }
             } catch (_: Throwable) {
                 // 辞書がなくても、ひらがな・カタカナ入力は使える
             }
@@ -166,6 +171,11 @@ class Dictionary(context: Context) {
         for ((r, list) in user.snapshot()) if (surface in list) return r
         try {
             converter?.findReading(surface)?.let { return it }
+        } catch (_: Throwable) {
+        }
+        // 選択範囲が1単語に一致しないときは、単語の並びに分割して読みを推定する（例: かん時→かんじ）
+        try {
+            converter?.segmentReading(surface)?.let { return it }
         } catch (_: Throwable) {
         }
         val hira = surface.map { if (it in 'ァ'..'ヶ') (it.code - 0x60).toChar() else it }.joinToString("")

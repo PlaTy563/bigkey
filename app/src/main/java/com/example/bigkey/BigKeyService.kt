@@ -43,6 +43,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private lateinit var candView: LinearLayout
     private lateinit var candGrid: LinearLayout
     private lateinit var enDict: EnglishDict
+    private var hasSelection = false // 確定済みのテキストが選択されている（候補バーの「再変換」表示用）
     private var selectMode = false // オンのあいだ、カーソルの矢印で範囲を選ぶ
     private var selectAnchor = -1 // 範囲選択の固定側の端（単語単位で広げるときの起点）
     private var enWord = "" // 英字入力中の、打ちかけの単語
@@ -268,6 +269,12 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         if (active && (newSelStart != candidatesEnd || newSelEnd != candidatesEnd)) {
             clearState()
             currentInputConnection?.finishComposingText()
+        }
+        // 入力中ではないときの範囲選択を覚えて、候補バーに「再変換」を出す
+        val sel = candidatesStart < 0 && newSelStart >= 0 && newSelStart != newSelEnd
+        if (sel != hasSelection) {
+            hasSelection = sel
+            refreshBar()
         }
     }
 
@@ -576,6 +583,9 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         val pal = Theme.of(this)
         if (candidates.isEmpty() && composer.isEmpty()) {
             undoInfo?.let { addChip("↩ 戻す", pal, true) { undoCommit() } }
+            if (japanese && hasSelection) {
+                addChip("再変換", pal, true) { reconvertSelection() }
+            }
             if (!japanese) {
                 for (w in enSug) addChip(w, pal, false) { pickEnglish(w) }
             } else {
@@ -810,6 +820,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         closePanel()
         if (selectMode) setSelectMode(false)
         resetSuggest()
+        hasSelection = false
         ic.setSelection(s, e)
         composer.clear()
         composer.appendLiteral(reading)

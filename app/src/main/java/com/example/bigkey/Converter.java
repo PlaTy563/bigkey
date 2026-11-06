@@ -91,16 +91,23 @@ public final class Converter {
         final int lid;
         final int rid;
         final int cost;
+        /** 学習バイアスを引く前の辞書どおりの費用。候補の差し替え可否の判定に使う。 */
+        final int rawCost;
         final String surface;
         int best = Integer.MAX_VALUE;
         Node prev;
 
         Node(int start, int end, int lid, int rid, int cost, String surface) {
+            this(start, end, lid, rid, cost, cost, surface);
+        }
+
+        Node(int start, int end, int lid, int rid, int cost, int rawCost, String surface) {
             this.start = start;
             this.end = end;
             this.lid = lid;
             this.rid = rid;
             this.cost = cost;
+            this.rawCost = rawCost;
             this.surface = surface;
         }
     }
@@ -248,10 +255,11 @@ public final class Converter {
             }
             p += 2 * sl;
             String surface = new String(chars);
+            int rawCost = cost;
             if (bias != null) {
                 cost -= Math.min(bias.count(reading, surface), BIAS_MAX_COUNT) * BIAS_PER_COUNT;
             }
-            out.add(new Node(start, end, lid, rid, cost, surface));
+            out.add(new Node(start, end, lid, rid, cost, rawCost, surface));
         }
     }
 
@@ -481,14 +489,13 @@ public final class Converter {
             Node cur = path.get(k);
             Node before = k == 0 ? bos : path.get(k - 1);
             Node after = k == path.size() - 1 ? null : path.get(k + 1);
-            int curCost = segmentCost(before, cur, after);
             String head = join(path, 0, k);
             String tail = join(path, k + 1, path.size());
             for (Node alt : startsAt[cur.start]) {
                 if (alt.end != cur.end || alt.surface.equals(cur.surface)) {
                     continue;
                 }
-                int delta = segmentCost(before, alt, after) - curCost;
+                int delta = segmentCostRaw(before, alt, after) - segmentCostRaw(before, cur, after);
                 if (delta > ALT_MAX_DELTA || isNoiseAlt(cur, alt) || isPersonName(alt.lid)
                         || isKatakanaAlt(cur, alt)) {
                     continue;
@@ -835,8 +842,13 @@ public final class Converter {
         return bestReading;
     }
 
-    private int segmentCost(Node before, Node node, Node after) {
-        int c = connCost(before.rid, node.lid) + node.cost;
+    /**
+     * 差し替え候補の可否・並び順に使う費用差。学習バイアスで選んだ語の費用が下がると、
+     * 同じ読みの他の語が差の上限を超えて候補から消えてしまう（例: 感じを1回選ぶと
+     * かんじの候補から漢字が消える）ため、バイアス抜きの費用で比べる。
+     */
+    private int segmentCostRaw(Node before, Node node, Node after) {
+        int c = connCost(before.rid, node.lid) + node.rawCost;
         c += after == null ? connCost(node.rid, 0) : connCost(node.rid, after.lid);
         return c;
     }

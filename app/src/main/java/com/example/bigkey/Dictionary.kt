@@ -102,7 +102,7 @@ class Dictionary(context: Context) {
      * 候補の並び: 最有力の変換結果 → 登録単語 → 予測変換 → 絵文字 → 単語を替えた変換 → ひらがな → カタカナ。
      * 利用者が非表示にした候補は除く。
      */
-    fun candidates(reading: String, limit: Int = 8, predict: Boolean = true): List<Cand> {
+    fun candidates(reading: String, limit: Int = 16, predict: Boolean = true): List<Cand> {
         if (reading.isEmpty()) return emptyList()
         val conv = converter
         val converted = ArrayList<Cand>()
@@ -154,6 +154,24 @@ class Dictionary(context: Context) {
             it.text == reading || !hidden.isHidden(it.keyReading(reading), it.keySurface())
         }
         return if (filtered.isEmpty()) listOf(Cand(reading, null, null)) else filtered
+    }
+
+    /**
+     * 確定済みの単語を変換し直すための読みを探す。
+     * 登録単語 → 辞書の逆引き → カタカナだけの単語はひらがなに戻す → ひらがなだけならそのまま、の順。
+     * 見つからなければ null。
+     */
+    fun readingFor(surface: String): String? {
+        if (surface.isEmpty()) return null
+        for ((r, list) in user.snapshot()) if (surface in list) return r
+        try {
+            converter?.findReading(surface)?.let { return it }
+        } catch (_: Throwable) {
+        }
+        val hira = surface.map { if (it in 'ァ'..'ヶ') (it.code - 0x60).toChar() else it }.joinToString("")
+        if (hira != surface && hira.all { it in 'ぁ'..'ゖ' || it == 'ー' }) return hira
+        if (surface.all { it in 'ぁ'..'ゖ' || it == 'ー' }) return surface
+        return null
     }
 
     /** 自動変換で入力中に表示する文字列。確信のある部分だけ変換し、打ちかけの末尾はひらがなのまま残す。 */

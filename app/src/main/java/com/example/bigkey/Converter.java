@@ -139,6 +139,16 @@ public final class Converter {
         this.pairStats = PairStats.load(data);
     }
 
+    // 表記→読みの逆引き索引（buildReverseIndex で構築する。表記の昇順に整列した配列）
+    private volatile String[] revSurfaces;
+    private volatile String[] revReadings;
+    private volatile short[] revCosts;
+    private volatile int revMaxLen;
+
+    private static final int SEG_PENALTY = 300; // 分割読み推定で、単語1つごとに足す費用
+    private static final int PASS_BASE = 2600; // 辞書に無いかな等を読みとしてそのまま通すときの費用
+    private static final int PASS_PER_CHAR = 150;
+
     private byte[] predictable; // 品詞idごとに、予測変換に使ってよいなら1
 
     public void setPredictable(byte[] flags) {
@@ -642,11 +652,145 @@ public final class Converter {
     }
 
     /**
+     * 表記→読みの逆引き索引を作る。辞書全体を1回走査するので、呼び出し側は
+     * バックグラウンドスレッドで1回だけ呼ぶこと。再変換の逆引きと分割推定に使う。
+     */
+    public synchronized void buildReverseIndex() {
+        if (revSurfaces != null) {
+            return;
+        }
+        Map<String, String> bestReading = new HashMap<>();
+        Map<String, Integer> bestCost = new HashMap<>();
+        Map<String, String> intern = new HashMap<>();
+        int maxLen = 0;
+        for (int idx = 0; idx < readingCount; idx++) {
+            int p = recordPos(idx);
+            int len = dict.get(p) & 0xFF;
+            p += 1;
+            char[] rc = new char[len];
+            for (int k = 0; k < len; k++) {
+                rc[k] = dict.getChar(p + 2 * k);
+            }
+            String reading = new String(rc);
+            String shared = intern.get(reading);
+            if (shared == null) {
+                intern.put(reading, reading);
+                shared = reading;
+            }
+            p += 2 * len;
+            int count = dict.get(p) & 0xFF;
+            p += 1;
+            for (int e = 0; e < count; e++) {
+                int cost = dict.getShort(p + 4);
+                int sl = dict.get(p + 6) & 0xFF;
+                p += 7;
+                char[] sc = new char[sl];
+                for (int k = 0; k < sl; k++) {
+                    sc[k] = dict.getChar(p + 2 * k);
+                }
+                p += 2 * sl;
+                String surface = new String(sc);
+                Integer cur = bestCost.get(surface);
+                if (cur == null || cost < cur) {
+                    bestCost.put(surface, cost);
+                    bestReading.put(surface, shared);
+                    if (sl > maxLen) {
+                        maxLen = sl;
+                    }
+                }
+            }
+        }
+        String[] keys = bestReading.keySet().toArray(new String[0]);
+        Arrays.sort(keys);
+        String[] vals = new String[keys.length];
+        short[] costs = new short[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            vals[i] = bestReading.get(keys[i]);
+            costs[i] = (short) Math.min(bestCost.get(keys[i]), Short.MAX_VALUE);
+        }
+        revReadings = vals;
+        revCosts = costs;
+        revMaxLen = maxLen;
+        revSurfaces = keys; // 最後に公開する（構築完了の印）
+    }
+
+    /**
      * 表記から読みを逆引きする（確定済みの単語を変換し直すために使う）。
      * 同じ表記が複数の読みに載っている場合は、辞書の費用が一番小さい読みを返す。
      * 辞書に無ければ null。
      */
     public String findReading(String surface) {
+        String[] keys = revSurfaces;
+        if (keys != null && surface != null && !surface.isEmpty()) {
+            int idx = Arrays.binarySearch(keys, surface);
+            return idx >= 0 ? revReadings[idx] : null;
+        }
+        return findReadingSlow(surface);
+    }
+
+    /**
+     * 選択範囲全体が1つの単語として辞書に無いときに、単語の並びに分割して読みを推定する。
+     * 例: 「かん時」→「かんじ」（かなの部分は読みとしてそのまま通し、漢字は逆引きする）。
+     * 推定できなければ null。逆引き索引が未構築なら null。
+     */
+    public String segmentReading(String surface) {
+        String[] keys = revSurfaces;
+        if (keys == null || surface == null || surface.isEmpty() || surface.length() > 32) {
+            return null;
+        }
+        int n = surface.length();
+        int[] bestCost = new int[n + 1];
+        Arrays.fill(bestCost, Integer.MAX_VALUE);
+        String[] bestRead = new String[n + 1];
+        bestCost[0] = 0;
+        bestRead[0] = "";
+        for (int i = 0; i < n; i++) {
+            if (bestRead[i] == null) {
+                continue;
+            }
+            // 辞書にある単語として [i, j) を引く
+            int maxJ = Math.min(n, i + revMaxLen);
+            for (int j = i + 1; j <= maxJ; j++) {
+                int idx = Arrays.binarySearch(keys, surface.substring(i, j));
+                if (idx >= 0) {
+                    int c = bestCost[i] + revCosts[idx] + SEG_PENALTY;
+                    if (c < bestCost[j]) {
+                        bestCost[j] = c;
+                        bestRead[j] = bestRead[i] + revReadings[idx];
+                    }
+                }
+            }
+            // かな・数字・英字の連なりは、読みとしてそのまま通す（カタカナはひらがなに直す）
+            char c0 = surface.charAt(i);
+            if (isKana(c0) || isKatakana(c0) || isDigit(c0) || isAlpha(c0)) {
+                int j = i + 1;
+                while (j < n) {
+                    char cj = surface.charAt(j);
+                    if (!(isKana(cj) || isKatakana(cj) || isDigit(cj) || isAlpha(cj))) {
+                        break;
+                    }
+                    j++;
+                }
+                StringBuilder sb = new StringBuilder(j - i);
+                for (int k = i; k < j; k++) {
+                    char ck = surface.charAt(k);
+                    sb.append(isKatakana(ck) ? (char) (ck - 0x60) : ck);
+                }
+                int c = bestCost[i] + PASS_BASE + PASS_PER_CHAR * (j - i);
+                if (c < bestCost[j]) {
+                    bestCost[j] = c;
+                    bestRead[j] = bestRead[i] + sb.toString();
+                }
+            }
+        }
+        return bestRead[n];
+    }
+
+    private static boolean isKatakana(char c) {
+        return c >= 'ァ' && c <= 'ヶ';
+    }
+
+    private String findReadingSlow(String surface) {
         if (surface == null || surface.isEmpty()) {
             return null;
         }

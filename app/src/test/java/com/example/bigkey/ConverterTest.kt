@@ -144,6 +144,21 @@ class ConverterTest {
     }
 
     @Test
+    fun segmentReadingSplitsSelection() {
+        val c = Converter.load(asset("dict.bin"), asset("conn.bin"))
+        c.buildReverseIndex()
+        // 索引を使っても単体の逆引きは同じ結果
+        assertEquals("きのう", c.findReading("昨日"))
+        assertEquals(null, c.findReading("デビアン"))
+        // 途中まで選んだ範囲（かん＋時）や、複合語を単語の並びに分けて読みを推定する
+        assertEquals("かんじ", c.segmentReading("かん時"))
+        assertEquals("かんじへんかん", c.segmentReading("漢字変換"))
+        assertEquals("たべる", c.segmentReading("食べる"))
+        // 辞書に無い文字だけの範囲は推定できない
+        assertEquals(null, c.segmentReading("龘"))
+    }
+
+    @Test
     fun predictReturnsReadingAndText() {
         val list = converter.predict("ありが", 8, null)
         assertTrue(list.isNotEmpty())

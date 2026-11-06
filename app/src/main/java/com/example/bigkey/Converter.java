@@ -479,7 +479,8 @@ public final class Converter {
                     continue;
                 }
                 int delta = segmentCost(before, alt, after) - curCost;
-                if (delta > ALT_MAX_DELTA || isNoiseAlt(cur, alt)) {
+                if (delta > ALT_MAX_DELTA || isNoiseAlt(cur, alt) || isPersonName(alt.lid)
+                        || isKatakanaAlt(cur, alt)) {
                     continue;
                 }
                 if (delta < minDelta[k] && !isAllKana(alt.surface)) {
@@ -610,6 +611,84 @@ public final class Converter {
         // 送り仮名が一致する差し替え（とっ→撮っ、あれ→荒れ、すぎ→過ぎ など）は候補に出す
         char last = cur.surface.charAt(cur.surface.length() - 1);
         return alt.surface.charAt(alt.surface.length() - 1) != last;
+    }
+
+    /** 人名（Mozcの品詞id 1921〜1923: 名詞，固有名詞，人名，一般/姓/名）は差し替え候補に出さない。
+     *  最良の変換経路には残すので、文脈上本命のときは今まで通り出る。 */
+    private static boolean isPersonName(int lid) {
+        return lid >= 1921 && lid <= 1923;
+    }
+
+    private static boolean isAllKatakana(String s) {
+        if (s.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (!((c >= 'ァ' && c <= 'ヶ') || c == 'ー')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 漢字・かなの単語を、その読みをカタカナで書いただけの表記に替える候補は出さない
+     * （例: かんじ→カンジ）。読み全体のカタカナ変換は、候補の末尾に別枠で常に出している。
+     * もとがカタカナの単語（外来語など）同士の差し替えは対象外。
+     */
+    private static boolean isKatakanaAlt(Node cur, Node alt) {
+        return isAllKatakana(alt.surface) && !isAllKatakana(cur.surface);
+    }
+
+    /**
+     * 表記から読みを逆引きする（確定済みの単語を変換し直すために使う）。
+     * 同じ表記が複数の読みに載っている場合は、辞書の費用が一番小さい読みを返す。
+     * 辞書に無ければ null。
+     */
+    public String findReading(String surface) {
+        if (surface == null || surface.isEmpty()) {
+            return null;
+        }
+        String bestReading = null;
+        int bestCost = Integer.MAX_VALUE;
+        for (int idx = 0; idx < readingCount; idx++) {
+            int p = recordPos(idx);
+            int len = dict.get(p) & 0xFF;
+            p += 1 + 2 * len;
+            int count = dict.get(p) & 0xFF;
+            p += 1;
+            for (int e = 0; e < count; e++) {
+                int cost = dict.getShort(p + 4);
+                int sl = dict.get(p + 6) & 0xFF;
+                p += 7;
+                if (sl == surface.length() && cost < bestCost
+                        && dict.getChar(p) == surface.charAt(0)) {
+                    boolean eq = true;
+                    for (int k = 1; k < sl; k++) {
+                        if (dict.getChar(p + 2 * k) != surface.charAt(k)) {
+                            eq = false;
+                            break;
+                        }
+                    }
+                    if (eq) {
+                        bestCost = cost;
+                        int rp = recordPos(idx);
+                        int rl = dict.get(rp) & 0xFF;
+                        char[] rc = new char[rl];
+                        for (int k = 0; k < rl; k++) {
+                            rc[k] = dict.getChar(rp + 1 + 2 * k);
+                        }
+                        bestReading = new String(rc);
+                    }
+                }
+                p += 2 * sl;
+            }
+            if (bestCost == 0) {
+                break; // これより費用の小さい読みはない
+            }
+        }
+        return bestReading;
     }
 
     private int segmentCost(Node before, Node node, Node after) {

@@ -774,6 +774,49 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         return true
     }
 
+    /**
+     * 選択中の単語（選択が無ければカーソル位置の単語）を読みに戻して、変換し直す。
+     * 読みが分かったら、その範囲を入力中の文字列として置き換え、通常の候補から選び直せるようにする。
+     */
+    private fun reconvertSelection() {
+        val ic = currentInputConnection ?: return
+        if (!japanese) return
+        // 入力中なら、まず確定してから対象の単語を選ぶ
+        if (candIndex >= 0 || !composer.isEmpty()) commitAsIs(ic)
+        fun extracted() = try {
+            ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+        } catch (_: Exception) {
+            null
+        }
+        var et = extracted() ?: return
+        if (et.selectionStart == et.selectionEnd) {
+            selectWordAtCursor()
+            et = extracted() ?: return
+        }
+        var s = et.selectionStart
+        var e = et.selectionEnd
+        val text = et.text?.toString() ?: return
+        if (s < 0 || e < 0 || s == e) {
+            android.widget.Toast.makeText(this, "変換し直す単語が選べませんでした", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (s > e) { val t = s; s = e; e = t }
+        val sel = text.substring(s, e)
+        val reading = dict.readingFor(sel)
+        if (reading == null) {
+            android.widget.Toast.makeText(this, "「$sel」の読みが辞書に見つかりませんでした", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        closePanel()
+        if (selectMode) setSelectMode(false)
+        resetSuggest()
+        ic.setSelection(s, e)
+        composer.clear()
+        composer.appendLiteral(reading)
+        // setComposingText が選択範囲を置き換える
+        syncComposition(ic)
+    }
+
     // ---- 候補の一覧 ----
 
     private fun openCandList() {
@@ -874,6 +917,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             val items = listOf<Pair<String, () -> Unit>>(
                 "閉じる" to { closePanel() },
                 "単語" to { selectWordAtCursor() },
+                "再変換" to { reconvertSelection() },
                 "全選択" to { editAction(android.R.id.selectAll) },
                 "コピー" to { editAction(android.R.id.copy) },
                 "切取" to { editAction(android.R.id.cut) },

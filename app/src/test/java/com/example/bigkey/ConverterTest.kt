@@ -113,6 +113,37 @@ class ConverterTest {
     }
 
     @Test
+    fun personNamesAreNotAltCandidates() {
+        // 人名は差し替え候補に出さない（最良経路には残る）
+        val list = texts("しょう", 20)
+        for (name in listOf("翔", "晶", "聖", "彰", "昭", "松", "唱")) {
+            assertTrue("$name が候補に出ないこと", !list.contains(name))
+        }
+        // 人名でない候補は残る
+        assertTrue(list.contains("章"))
+        assertTrue(list.contains("焼"))
+    }
+
+    @Test
+    fun katakanaRenderingsAreNotAltCandidates() {
+        // 読みをカタカナで書いただけの差し替えは出さない
+        assertTrue(!texts("かんじ", 10).contains("カンジ"))
+        assertTrue(!texts("きょう", 20).contains("キョウ"))
+        assertTrue(texts("かんじ", 10).contains("漢字"))
+    }
+
+    @Test
+    fun findReadingReversesSurface() {
+        assertEquals("きのう", converter.findReading("昨日"))
+        assertEquals("きのう", converter.findReading("機能"))
+        assertEquals("きょう", converter.findReading("今日"))
+        // 人名の表記も逆引きできる（確定済みの単語を変換し直すために使う）
+        assertEquals("しょう", converter.findReading("翔"))
+        assertEquals(null, converter.findReading("デビアン"))
+        assertEquals(null, converter.findReading(""))
+    }
+
+    @Test
     fun predictReturnsReadingAndText() {
         val list = converter.predict("ありが", 8, null)
         assertTrue(list.isNotEmpty())

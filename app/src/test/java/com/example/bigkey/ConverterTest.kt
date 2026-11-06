@@ -133,6 +133,19 @@ class ConverterTest {
     }
 
     @Test
+    fun learningBiasKeepsAlternatives() {
+        // 感じを過去に選んだ学習があっても、同じ読みの漢字・幹事が候補から消えないこと
+        val bias = object : Converter.Bias {
+            override fun count(reading: String, surface: String): Int =
+                if (reading == "かんじ" && surface == "感じ") 3 else 0
+        }
+        val biased = converter.convert("かんじ", 16, bias).map { it.text }
+        assertEquals("感じ", biased.first())
+        assertTrue("漢字 should survive learning bias: $biased", "漢字" in biased)
+        assertTrue("幹事 should survive learning bias: $biased", "幹事" in biased)
+    }
+
+    @Test
     fun findReadingReversesSurface() {
         assertEquals("きのう", converter.findReading("昨日"))
         assertEquals("きのう", converter.findReading("機能"))

@@ -153,7 +153,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             addView(barFrame, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
             expandButton = IconButton(this@BigKeyService, IconButton.Icon.DOWN, "候補をすべて表示").apply {
                 visibility = View.GONE
-                setOnClickListener { openCandList() }
+                setOnClickListener { if (candListOpen()) closePanel() else openCandList() }
             }
             addView(
                 expandButton,
@@ -651,7 +651,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             )
         }
         if (::expandButton.isInitialized) {
-            expandButton.visibility = if (candidates.size > 1) View.VISIBLE else View.GONE
+            expandButton.visibility = if (candidates.size > 1 || candListOpen()) View.VISIBLE else View.GONE
         }
         if (candIndex >= 0) {
             candScroll.post { candViews.getOrNull(candIndex)?.let { candScroll.smoothScrollTo(it.left, 0) } }
@@ -872,6 +872,21 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         candView.visibility = View.VISIBLE
         panel.visibility = View.VISIBLE
         kb.visibility = View.INVISIBLE
+        syncExpandButton()
+    }
+
+    /** 候補一覧が開いているか。 */
+    private fun candListOpen(): Boolean =
+        ::candView.isInitialized && ::panel.isInitialized &&
+            panel.visibility == View.VISIBLE && candView.visibility == View.VISIBLE
+
+    /** 展開ボタンの見た目を、候補一覧の開閉状態に合わせる（開く=∨、閉じる=∧で同じボタン）。 */
+    private fun syncExpandButton() {
+        if (!::expandButton.isInitialized) return
+        val open = candListOpen()
+        expandButton.icon = if (open) IconButton.Icon.UP else IconButton.Icon.DOWN
+        expandButton.contentDescription = if (open) "候補の一覧を閉じる" else "候補をすべて表示"
+        if (open) expandButton.visibility = View.VISIBLE
     }
 
     // ---- カーソル移動 ----
@@ -953,10 +968,6 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         candView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
-            addView(
-                tool("閉じる") { closePanel() },
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply { setMargins(dp(3), dp(4), dp(3), dp(4)) }
-            )
             addView(ScrollView(context).apply { addView(candGrid) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         }
         return LinearLayout(this).apply {
@@ -1136,11 +1147,13 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         }
         panel.visibility = View.VISIBLE
         kb.visibility = View.INVISIBLE
+        syncExpandButton()
     }
 
     private fun closePanel() {
         panel.visibility = View.GONE
         kb.visibility = View.VISIBLE
+        syncExpandButton()
     }
 
     private fun moveCursor(d: Int) {

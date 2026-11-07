@@ -8,8 +8,15 @@ import android.graphics.RectF
 import android.view.View
 
 /** 線で描いたアイコンのボタン。画像ファイルを使わず、図形で描く。 */
-class IconButton(context: Context, private val icon: Icon, description: String) : View(context) {
-    enum class Icon { LEFT, RIGHT, CLIP, EMOJI, MIC, KEY, SELECT, DOWN, GEAR }
+class IconButton(context: Context, icon: Icon, description: String) : View(context) {
+    enum class Icon { LEFT, RIGHT, CLIP, EMOJI, MIC, KEY, SELECT, DOWN, UP, GEAR }
+
+    /** 表示するアイコン。途中で差し替えられる（展開ボタンの∨/∧切替など）。 */
+    var icon: Icon = icon
+        set(v) {
+            field = v
+            invalidate()
+        }
 
     private val pal = Theme.of(context)
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = pal.special }
@@ -58,6 +65,7 @@ class IconButton(context: Context, private val icon: Icon, description: String) 
             Icon.KEY -> drawKey(canvas, cx, cy, s)
             Icon.SELECT -> drawSelect(canvas, cx, cy, s)
             Icon.DOWN -> drawDown(canvas, cx, cy, s)
+            Icon.UP -> drawUp(canvas, cx, cy, s)
             Icon.GEAR -> drawGear(canvas, cx, cy, s)
         }
     }
@@ -118,6 +126,14 @@ class IconButton(context: Context, private val icon: Icon, description: String) 
         c.drawRoundRect(rect, s * 0.2f, s * 0.2f, fill)
         fill.alpha = a
         c.drawLine(x + s * 0.5f, y - s * 1.1f, x + s * 0.5f, y + s * 1.1f, line)
+    }
+
+    private fun drawUp(c: Canvas, x: Float, y: Float, s: Float) {
+        path.reset()
+        path.moveTo(x - s * 1.0f, y + s * 0.45f)
+        path.lineTo(x, y - s * 0.55f)
+        path.lineTo(x + s * 1.0f, y + s * 0.45f)
+        c.drawPath(path, line)
     }
 
     private fun drawDown(c: Canvas, x: Float, y: Float, s: Float) {

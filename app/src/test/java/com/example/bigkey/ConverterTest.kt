@@ -70,7 +70,8 @@ class ConverterTest {
     fun biasChangesTop() {
         val reading = "きのうはあめがふっていました"
         assertTrue(texts(reading, 3).first().startsWith("機能は"))
-        val bias = Converter.Bias { rd, surface -> if (rd == "きのう" && surface == "昨日") 1 else 0 }
+        // 学習の効きは1件500（最大3件で-1500）。昨日と機能の費用差はその範囲なので、3件で逆転する
+        val bias = Converter.Bias { rd, surface -> if (rd == "きのう" && surface == "昨日") 3 else 0 }
         val withBias = converter.convert(reading, 3, bias).map { it.text }
         assertTrue(withBias.first().startsWith("昨日は"))
     }

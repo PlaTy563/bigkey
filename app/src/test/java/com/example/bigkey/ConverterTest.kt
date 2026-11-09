@@ -161,6 +161,24 @@ class ConverterTest {
     }
 
     @Test
+    fun segmentBiasDoesNotStackToBreakWords() {
+        // 複数の区間への学習が重なっても、辞書本来の語（自分・基本）が負けないこと
+        val bias = object : Converter.Bias {
+            override fun count(reading: String, surface: String): Int = when {
+                reading == "じ" && surface == "時" -> 3
+                reading == "ぶん" && surface == "分" -> 3
+                reading == "き" && surface == "気" -> 3
+                reading == "ほん" && surface == "本" -> 3
+                reading == "で" && surface == "出" -> 3
+                reading == "ない" && surface == "内" -> 3
+                else -> 0
+            }
+        }
+        assertEquals("自分", converter.convert("じぶん", 16, bias).first().text)
+        assertEquals("基本でない", converter.convert("きほんでない", 16, bias).first().text)
+    }
+
+    @Test
     fun findReadingReversesSurface() {
         assertEquals("きのう", converter.findReading("昨日"))
         assertEquals("きのう", converter.findReading("機能"))

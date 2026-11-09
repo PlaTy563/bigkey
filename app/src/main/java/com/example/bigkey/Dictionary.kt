@@ -56,6 +56,10 @@ class Dictionary(context: Context) {
                     conv.setPairStats(app.assets.open("pairs.bin").use { it.readBytes() })
                 } catch (_: Exception) {
                 }
+                try {
+                    conv.setDomainWords(loadDomainWords(app))
+                } catch (_: Exception) {
+                }
                 // 変換自体は索引なしでも使えるので、先に公開してから索引を作る
                 converter = conv
                 try {
@@ -80,6 +84,21 @@ class Dictionary(context: Context) {
             }
         }
         return m
+    }
+
+    /** アプリ同梱の専門用語辞書（assets/domain_words.tsv: 読み<TAB>表記）。 */
+    private fun loadDomainWords(app: Context): Map<String, List<String>> {
+        val out = LinkedHashMap<String, MutableList<String>>()
+        app.assets.open("domain_words.tsv").bufferedReader(Charsets.UTF_8).useLines { lines ->
+            for (line in lines) {
+                if (line.isBlank() || line.startsWith("#")) continue
+                val cols = line.split('\t')
+                if (cols.size >= 2 && cols[0].isNotEmpty() && cols[1].isNotEmpty()) {
+                    out.getOrPut(cols[0]) { ArrayList() }.add(cols[1])
+                }
+            }
+        }
+        return out
     }
 
     private fun loadPhrases(app: Context): List<Pair<String, String>> {

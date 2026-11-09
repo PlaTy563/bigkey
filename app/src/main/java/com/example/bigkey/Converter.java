@@ -276,7 +276,11 @@ public final class Converter {
                 break; // これより長い読みも、この文字列では始まらない
             }
             if (compareReading(idx, s, i, len) == 0) {
-                addEntries(idx, i, i + len, s.substring(i, i + len), bias, out);
+                // 読みが1文字の語には学習を効かせない（単独で1文字だけ変換するときは除く）。
+                // 別の単語の一部として選ばれた漢字（例: 文化の「化」、京都の「都」）が
+                // 助詞などの位置でも強く推されて、文全体の変換が壊れるため。
+                Bias b = (len == 1 && s.length() > 1) ? null : bias;
+                addEntries(idx, i, i + len, s.substring(i, i + len), b, out);
             }
         }
     }

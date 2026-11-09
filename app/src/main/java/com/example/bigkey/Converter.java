@@ -36,7 +36,9 @@ public final class Converter {
     private static final int UNKNOWN_KANA_COST = 10000;
 
     /** 選んだ履歴1回あたりに下げる費用と、数える回数の上限。 */
-    private static final int BIAS_PER_COUNT = 2000;
+    // 学習1件あたりの効き。強すぎると、複数の区間に学習が重なったときに
+    // 辞書本来の順序をひっくり返して文の変換を壊す（実測で 2000 は強すぎた）。
+    private static final int BIAS_PER_COUNT = 500;
     private static final int BIAS_MAX_COUNT = 3;
 
     /** 利用者が過去に選んだ回数。(読み, 表記) の組ごとに返す。 */

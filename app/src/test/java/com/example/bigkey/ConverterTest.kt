@@ -146,6 +146,21 @@ class ConverterTest {
     }
 
     @Test
+    fun singleCharBiasDoesNotBreakSentence() {
+        // 別の単語の一部として選ばれた1文字の漢字（都・化）への学習が強くても、
+        // 助詞の位置にある と・か を押しのけて文の変換を壊さないこと
+        val bias = object : Converter.Bias {
+            override fun count(reading: String, surface: String): Int = when {
+                reading == "と" && surface == "都" -> 3
+                reading == "か" && surface == "化" -> 3
+                else -> 0
+            }
+        }
+        val list = converter.convert("しらかわごうとか", 16, bias)
+        assertEquals("白川郷とか", list.first().text)
+    }
+
+    @Test
     fun findReadingReversesSurface() {
         assertEquals("きのう", converter.findReading("昨日"))
         assertEquals("きのう", converter.findReading("機能"))

@@ -77,6 +77,9 @@ public final class Converter {
     private static final int LIVE_CONFIDENT_DELTA = 50;
     private static final int PAIR_BONUS = 1500;
     private static final int USER_WORD_COST = 1500;
+    // アプリ同梱の専門用語辞書（assets/domain_words.tsv）。利用者辞書より弱く、
+    // 一般語の最有力候補（例: やく→約）は倒さないが、辞書に無い専門用語は拾える強さ。
+    private static final int DOMAIN_WORD_COST = 3000;
     private static final int PREDICT_LEN_PENALTY = 350;
     private static final int PREDICT_SCAN_MAX = 60000;
 
@@ -140,6 +143,19 @@ public final class Converter {
         }
         this.userWords = words;
         this.userMaxLen = max;
+    }
+
+    private volatile Map<String, List<String>> domainWords = new HashMap<>();
+    private volatile int domainMaxLen = 0;
+
+    /** アプリ同梱の専門用語（読み → 表記の一覧）を、変換に加える。 */
+    public void setDomainWords(Map<String, List<String>> words) {
+        int max = 0;
+        for (String k : words.keySet()) {
+            max = Math.max(max, k.length());
+        }
+        this.domainWords = words;
+        this.domainMaxLen = max;
     }
 
     private PairStats pairStats; // 単語の並びの統計（任意）
@@ -287,6 +303,20 @@ public final class Converter {
         }
     }
 
+    private void addDomainNodes(String s, int i, List<Node> out) {
+        Map<String, List<String>> words = domainWords;
+        int maxLen = Math.min(domainMaxLen, s.length() - i);
+        for (int len = 1; len <= maxLen; len++) {
+            List<String> list = words.get(s.substring(i, i + len));
+            if (list == null) {
+                continue;
+            }
+            for (String surface : list) {
+                out.add(new Node(i, i + len, ID_NOUN, ID_NOUN, DOMAIN_WORD_COST, surface));
+            }
+        }
+    }
+
     private void addUserNodes(String s, int i, List<Node> out) {
         Map<String, List<String>> words = userWords;
         int maxLen = Math.min(userMaxLen, s.length() - i);
@@ -410,6 +440,7 @@ public final class Converter {
         for (int i = 0; i < n; i++) {
             List<Node> list = new ArrayList<>();
             addDictionaryNodes(reading, i, bias, list);
+            addDomainNodes(reading, i, list);
             addUserNodes(reading, i, list);
             addUnknownNodes(reading, i, list);
             startsAt[i] = list;

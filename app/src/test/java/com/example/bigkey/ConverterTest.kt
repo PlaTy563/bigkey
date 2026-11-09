@@ -70,7 +70,8 @@ class ConverterTest {
     fun biasChangesTop() {
         val reading = "きのうはあめがふっていました"
         assertTrue(texts(reading, 3).first().startsWith("機能は"))
-        val bias = Converter.Bias { rd, surface -> if (rd == "きのう" && surface == "昨日") 1 else 0 }
+        // 学習の効きは1件500（最大3件で-1500）。昨日と機能の費用差はその範囲なので、3件で逆転する
+        val bias = Converter.Bias { rd, surface -> if (rd == "きのう" && surface == "昨日") 3 else 0 }
         val withBias = converter.convert(reading, 3, bias).map { it.text }
         assertTrue(withBias.first().startsWith("昨日は"))
     }
@@ -143,6 +144,39 @@ class ConverterTest {
         assertEquals("感じ", biased.first())
         assertTrue("漢字 should survive learning bias: $biased", "漢字" in biased)
         assertTrue("幹事 should survive learning bias: $biased", "幹事" in biased)
+    }
+
+    @Test
+    fun singleCharBiasDoesNotBreakSentence() {
+        // 別の単語の一部として選ばれた1文字の漢字（都・化）への学習が強くても、
+        // 助詞の位置にある と・か を押しのけて文の変換を壊さないこと
+        val bias = object : Converter.Bias {
+            override fun count(reading: String, surface: String): Int = when {
+                reading == "と" && surface == "都" -> 3
+                reading == "か" && surface == "化" -> 3
+                else -> 0
+            }
+        }
+        val list = converter.convert("しらかわごうとか", 16, bias)
+        assertEquals("白川郷とか", list.first().text)
+    }
+
+    @Test
+    fun segmentBiasDoesNotStackToBreakWords() {
+        // 複数の区間への学習が重なっても、辞書本来の語（自分・基本）が負けないこと
+        val bias = object : Converter.Bias {
+            override fun count(reading: String, surface: String): Int = when {
+                reading == "じ" && surface == "時" -> 3
+                reading == "ぶん" && surface == "分" -> 3
+                reading == "き" && surface == "気" -> 3
+                reading == "ほん" && surface == "本" -> 3
+                reading == "で" && surface == "出" -> 3
+                reading == "ない" && surface == "内" -> 3
+                else -> 0
+            }
+        }
+        assertEquals("自分", converter.convert("じぶん", 16, bias).first().text)
+        assertEquals("基本でない", converter.convert("きほんでない", 16, bias).first().text)
     }
 
     @Test

@@ -49,6 +49,9 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
     private var enWord = "" // 英字入力中の、打ちかけの単語
     private var enSug: List<String> = emptyList()
     private var suggestEn = false
+    private var emailField = false // メールアドレス欄かどうか
+    private var mailWord = "" // メール欄で入力中のアドレス（@ とドメインも含めて追う）
+    private var mailSug: List<String> = emptyList()
     private var undoInfo: UndoInfo? = null
 
     /** 確定した変換を取り消して、読みに戻すための情報。 */
@@ -215,6 +218,8 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         resetSuggest()
         enWord = ""
         enSug = emptyList()
+        mailWord = ""
+        mailSug = emptyList()
         undoInfo = null
         setSelectMode(false)
         VoiceBridge.consume()?.let { currentInputConnection?.commitText(it, 1) }
@@ -228,6 +233,8 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
             variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS ||
             variation == InputType.TYPE_TEXT_VARIATION_URI
+        emailField = variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
+            variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS
         noLearn = (info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
 
         japanese = userJapanese && !forceEnglish
@@ -237,6 +244,7 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         layoutToolbar()
         bwButton.visibility = if (Prefs.showBitwarden(this) && bitwardenIntent() != null) View.VISIBLE else View.GONE
         kb.setJapanese(japanese)
+        kb.setEmailLayer(emailField)
         kb.setSymbolLayer(
             cls == InputType.TYPE_CLASS_NUMBER ||
                 cls == InputType.TYPE_CLASS_PHONE ||
@@ -265,6 +273,14 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
                 refreshBar()
             }
         }
+        if (mailWord.isNotEmpty()) {
+            val before = currentInputConnection?.getTextBeforeCursor(mailWord.length, 0)?.toString()
+            if (before != mailWord) {
+                mailWord = ""
+                mailSug = emptyList()
+                refreshBar()
+            }
+        }
         val active = !composer.isEmpty() || candIndex >= 0
         if (active && (newSelStart != candidatesEnd || newSelEnd != candidatesEnd)) {
             clearState()
@@ -290,6 +306,14 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             resetSuggest()
             enWord = if (key.kind == KeyboardView.Kind.LETTER) enWord + s else ""
             updateEnglish()
+            if (emailField) {
+                mailWord = when {
+                    key.kind == KeyboardView.Kind.LETTER || key.kind == KeyboardView.Kind.DIGIT -> mailWord + s
+                    key.kind == KeyboardView.Kind.SYMBOL && s.length == 1 && s[0] in "@._%+-" -> mailWord + s
+                    else -> ""
+                }
+                updateMail()
+            }
             return
         }
 
@@ -322,6 +346,10 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
             if (enWord.isNotEmpty()) {
                 enWord = ""
                 updateEnglish()
+            }
+            if (mailWord.isNotEmpty()) {
+                mailWord = ""
+                updateMail()
             }
             return
         }
@@ -363,6 +391,10 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         if (enWord.isNotEmpty()) {
             enWord = enWord.dropLast(1)
             updateEnglish()
+        }
+        if (emailField && mailWord.isNotEmpty()) {
+            mailWord = mailWord.dropLast(1)
+            updateMail()
         }
         sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
     }
@@ -445,9 +477,12 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         currentInputConnection?.let { commitAsIs(it) }
         enWord = ""
         enSug = emptyList()
+        mailWord = ""
+        mailSug = emptyList()
         japanese = !japanese
         userJapanese = japanese
         kb.setJapanese(japanese)
+        kb.setEmailLayer(emailField)
     }
 
     // ---- 入力中の文字列と変換候補 ----
@@ -587,7 +622,11 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
                 addChip("再変換", pal, true) { reconvertSelection() }
             }
             if (!japanese) {
-                for (w in enSug) addChip(w, pal, false) { pickEnglish(w) }
+                if (mailSug.isNotEmpty()) {
+                    for (d in mailSug) addChip(d, pal, false) { pickMail(d) }
+                } else {
+                    for (w in enSug) addChip(w, pal, false) { pickEnglish(w) }
+                }
             } else {
                 for (sug in suggestions) {
                     addChip(sug, pal, false) {
@@ -686,6 +725,26 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
 
     private fun updateEnglish() {
         enSug = if (!japanese && suggestEn && enWord.length >= 2) enDict.complete(enWord, 6) else emptyList()
+        refreshBar()
+    }
+
+    // ---- メールアドレスのドメイン補完 ----
+
+    private fun updateMail() {
+        mailSug = if (emailField && !japanese) MailComplete.complete(mailWord, 6) else emptyList()
+        refreshBar()
+    }
+
+    /** ドメイン候補を選んだら、@ の後ろの打ちかけをドメイン全体に置き換える（空白は付けない）。 */
+    private fun pickMail(domain: String) {
+        val ic = currentInputConnection ?: return
+        val at = mailWord.lastIndexOf('@')
+        if (at < 0) return
+        val partLen = mailWord.length - at - 1
+        if (partLen > 0) ic.deleteSurroundingText(partLen, 0)
+        ic.commitText(domain, 1)
+        mailWord = mailWord.substring(0, at + 1) + domain
+        mailSug = emptyList()
         refreshBar()
     }
 
@@ -897,6 +956,8 @@ class BigKeyService : InputMethodService(), KeyboardView.Listener {
         resetSuggest()
         enWord = ""
         enSug = emptyList()
+        mailWord = ""
+        mailSug = emptyList()
         val code = if (delta < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT
         if (selectMode) {
             // Shift を押しながら矢印を押したことにして、範囲を広げる

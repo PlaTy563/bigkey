@@ -21,8 +21,8 @@ android {
         applicationId = "com.example.bigkey"
         minSdk = 26
         targetSdk = 34
-        versionCode = 31
-        versionName = "0.12.14"
+        versionCode = 32
+        versionName = "0.12.15"
     }
 
     signingConfigs {

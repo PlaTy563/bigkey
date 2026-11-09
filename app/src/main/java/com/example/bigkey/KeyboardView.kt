@@ -126,6 +126,16 @@ class KeyboardView(context: Context) : View(context) {
         rebuild()
     }
 
+    private var emailLayer = false
+
+    /** メールアドレス欄では、カンマのキーを @ に変える（カンマはアドレスに使わないため）。 */
+    fun setEmailLayer(value: Boolean) {
+        if (emailLayer != value) {
+            emailLayer = value
+            rebuild()
+        }
+    }
+
     fun setSymbolLayer(value: Boolean) {
         symbolLayer = value
         shift = false
@@ -178,10 +188,10 @@ class KeyboardView(context: Context) : View(context) {
         res += listOf(
             Key(Kind.LAYER, if (symbolLayer) "文字" else "記号", weight = 1.2f),
             Key(Kind.MODE, if (japanese) "日本語" else "English", weight = 1.7f),
-            Key(Kind.SYMBOL, if (japanese) "、" else ",", weight = 1f),
+            Key(Kind.SYMBOL, if (emailLayer && !japanese) "@" else if (japanese) "、" else ",", weight = 1f),
             Key(Kind.SPACE, "", weight = 3f),
             Key(Kind.SYMBOL, if (japanese) "。" else ".", weight = 1f),
-            Key(Kind.SYMBOL, if (japanese) "ー" else "-", weight = 1f),
+            Key(Kind.SYMBOL, if (japanese) "ー" else "-", weight = 1f, hint = if (emailLayer && !japanese) "_" else null),
             Key(Kind.ENTER, "↵", weight = 1.6f),
         )
         return res

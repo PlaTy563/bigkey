@@ -77,6 +77,18 @@ class ConverterTest {
     }
 
     @Test
+    fun domainWordsConvert() {
+        val c = Converter.load(asset("dict.bin"), asset("conn.bin"))
+        c.setDomainWords(mapOf("がいえい" to listOf("外穎"), "かいか" to listOf("開花"), "やく" to listOf("葯")))
+        assertEquals("外穎", c.convert("がいえい", 16).first().text)
+        assertEquals("稲の外穎", c.convert("いねのがいえい", 16).first().text)
+        assertEquals("開花", c.convert("かいか", 16).first().text)
+        // 辞書に無い専門用語が候補の上位に出る
+        val yaku = c.convert("やく", 16).map { it.text }
+        assertTrue("葯 should be a top candidate: $yaku", yaku.indexOf("葯") in 0..2)
+    }
+
+    @Test
     fun altCandidateCarriesSegmentInfo() {
         val list = converter.convert("きのうはあめがふっていました", 8)
         assertEquals(-1, list.first().segStart)
